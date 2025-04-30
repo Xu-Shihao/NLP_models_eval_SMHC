@@ -63,14 +63,20 @@ def main():
                         help="交叉验证折数")
     parser.add_argument("--batch_size", type=int, default=1,
                         help="批次大小")
-    parser.add_argument("--max_seq_length", type=int, default=1024,
-                        help="最大序列长度")
+    parser.add_argument("--max_seq_length", type=int, default=512,
+                        help="每个块的最大序列长度，固定为512")
     parser.add_argument("--epochs", type=int, default=2,
                         help="训练轮数")
     
     # BERT特定参数
     parser.add_argument("--bert_model_name", type=str, default="hfl/chinese-roberta-wwm-ext-large",
                         help="BERT预训练模型名称")
+    
+    # 新增参数：长文本处理参数
+    parser.add_argument("--max_chunks", type=int, default=15,
+                        help="每个样本最多使用的chunk数")
+    parser.add_argument("--fusion_method", type=str, default='mean', choices=['mean', 'max'],
+                        help="late fusion方法，可选'mean'或'max'")
     
     # 新增参数：是否仅显示序列长度统计
     parser.add_argument("--only_show_seq_length", action="store_true",
@@ -99,7 +105,9 @@ def main():
         "--batch_size", str(args.batch_size),
         "--max_seq_length", str(args.max_seq_length),
         "--epochs", str(args.epochs),
-        "--bert_model_name", args.bert_model_name
+        "--bert_model_name", args.bert_model_name,
+        "--max_chunks", str(args.max_chunks),
+        "--fusion_method", args.fusion_method
     ]
     
     # 执行训练脚本
@@ -113,4 +121,4 @@ def main():
         print(f"训练过程中出错: {e}")
 
 if __name__ == "__main__":
-    main() 
+    main()

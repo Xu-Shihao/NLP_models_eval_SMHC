@@ -11,11 +11,12 @@ from transformers import BertTokenizer, get_linear_schedule_with_warmup
 from tqdm import tqdm
 import jieba
 from collections import Counter
+import matplotlib.pyplot as plt
 
 from models import BertClassifier, BiLSTMClassifier
 from utils import (
-    TextDataset, load_data, prepare_kfold_data, split_train_val,
-    calculate_metrics, plot_metrics, save_predictions
+    TextDataset, LongTextDataset, load_data, prepare_kfold_data, split_train_val,
+    calculate_metrics, plot_metrics, save_predictions, late_fusion
 )
 
 def train_epoch(model, data_loader, optimizer, scheduler, device, criterion):
@@ -97,10 +98,26 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     # 加载分词器
     tokenizer = BertTokenizer.from_pretrained(args.bert_model_name)
     
-    # 准备数据集
-    train_dataset = TextDataset(train_texts, train_labels, tokenizer, args.max_seq_length)
-    val_dataset = TextDataset(val_texts, val_labels, tokenizer, args.max_seq_length)
-    test_dataset = TextDataset(test_texts, test_labels, tokenizer, args.max_seq_length)
+    # 使用LongTextDataset处理长文本
+    chunk_length = 512  # 固定chunk长度为512
+    train_dataset = LongTextDataset(
+        train_texts, train_labels, tokenizer, 
+        chunk_length=chunk_length, 
+        max_chunks=args.max_chunks, 
+        is_training=True
+    )
+    val_dataset = LongTextDataset(
+        val_texts, val_labels, tokenizer, 
+        chunk_length=chunk_length, 
+        max_chunks=args.max_chunks, 
+        is_training=False
+    )
+    test_dataset = LongTextDataset(
+        test_texts, test_labels, tokenizer, 
+        chunk_length=chunk_length, 
+        max_chunks=args.max_chunks, 
+        is_training=False
+    )
     
     # 创建DataLoader
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
@@ -140,8 +157,10 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
         # 训练
         train_loss = train_epoch(model, train_loader, optimizer, scheduler, device, criterion)
         
-        # 验证
-        val_metrics, _, _, _ = evaluate(model, val_loader, device, criterion)
+        # 验证（使用late fusion）
+        val_metrics, val_labels, val_preds, val_probs, val_indices = evaluate_with_fusion(
+            model, val_loader, device, criterion, fusion_method=args.fusion_method
+        )
         
         print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_metrics['loss']:.4f}, "
               f"Val F1: {val_metrics['f1']:.4f}, Val ROC AUC: {val_metrics['roc_auc']:.4f}")
@@ -164,8 +183,10 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     # 加载最佳模型进行测试
     model.load_state_dict(best_model_state)
     
-    # 测试集评估
-    test_metrics, test_labels, test_preds, test_probs = evaluate(model, test_loader, device, criterion)
+    # 测试集评估（使用late fusion）
+    test_metrics, test_labels, test_preds, test_probs, test_indices = evaluate_with_fusion(
+        model, test_loader, device, criterion, fusion_method=args.fusion_method
+    )
     
     print("\n===== 最终测试集性能 =====")
     for metric_name, metric_value in test_metrics.items():
@@ -184,6 +205,56 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     }, model_path)
     
     return test_metrics, test_labels, test_preds, test_probs
+
+def evaluate_with_fusion(model, data_loader, device, criterion, fusion_method='mean'):
+    """在验证/测试集上评估模型，并使用late fusion合并结果"""
+    model.eval()
+    total_loss = 0
+    all_preds = []
+    all_probs = []
+    all_labels = []
+    all_sample_indices = []
+    
+    with torch.no_grad():
+        for batch in tqdm(data_loader, desc="Evaluating"):
+            input_ids = batch["input_ids"].to(device)
+            attention_mask = batch["attention_mask"].to(device)
+            labels = batch["label"].to(device)
+            sample_indices = batch["sample_idx"].cpu().numpy()
+            
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            loss = criterion(outputs, labels)
+            total_loss += loss.item()
+            
+            probs = torch.softmax(outputs, dim=1)
+            preds = torch.argmax(probs, dim=1)
+            
+            all_preds.extend(preds.cpu().numpy())
+            all_probs.extend(probs.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+            all_sample_indices.extend(sample_indices)
+    
+    # 将所有chunk的预测结果转换为numpy数组
+    all_preds = np.array(all_preds)
+    all_probs = np.array(all_probs)
+    all_labels = np.array(all_labels)
+    all_sample_indices = np.array(all_sample_indices)
+    
+    # 应用late fusion合并同一样本的多个chunks的预测
+    unique_indices, fused_probs = late_fusion(all_sample_indices, all_probs, fusion_method)
+    
+    # 获取合并后样本的真实标签和预测标签
+    fused_preds = np.argmax(fused_probs, axis=1)
+    fused_labels = np.array([all_labels[all_sample_indices == idx][0] for idx in unique_indices])
+    
+    # 计算指标
+    metrics = calculate_metrics(fused_labels, fused_preds, fused_probs)
+    
+    # 平均损失
+    avg_loss = total_loss / len(data_loader)
+    metrics['loss'] = avg_loss
+    
+    return metrics, fused_labels, fused_preds, fused_probs, unique_indices
 
 def build_vocab(texts, min_freq=2):
     """为BiLSTM构建词汇表"""
@@ -251,17 +322,33 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     
     # 构建词汇表
     all_train_texts = np.concatenate([train_texts, val_texts])
-    vocab = build_vocab(all_train_texts, min_freq=args.min_word_freq)
+    vocab = build_vocab(all_train_texts, min_freq=args.min_freq)
     vocab_size = len(vocab)
     print(f"词汇表大小: {vocab_size}")
     
-    # 创建分词器
+    # 自定义分词器
     tokenizer = BiLSTMTokenizer(vocab, max_length=args.max_seq_length)
     
-    # 准备数据集
-    train_dataset = TextDataset(train_texts, train_labels, tokenizer, args.max_seq_length)
-    val_dataset = TextDataset(val_texts, val_labels, tokenizer, args.max_seq_length)
-    test_dataset = TextDataset(test_texts, test_labels, tokenizer, args.max_seq_length)
+    # 使用LongTextDataset处理长文本
+    chunk_length = 512  # 固定chunk长度为512
+    train_dataset = LongTextDataset(
+        train_texts, train_labels, tokenizer, 
+        chunk_length=chunk_length, 
+        max_chunks=args.max_chunks, 
+        is_training=True
+    )
+    val_dataset = LongTextDataset(
+        val_texts, val_labels, tokenizer, 
+        chunk_length=chunk_length, 
+        max_chunks=args.max_chunks, 
+        is_training=False
+    )
+    test_dataset = LongTextDataset(
+        test_texts, test_labels, tokenizer, 
+        chunk_length=chunk_length, 
+        max_chunks=args.max_chunks, 
+        is_training=False
+    )
     
     # 创建DataLoader
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
@@ -273,7 +360,7 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
         vocab_size=vocab_size,
         embedding_dim=args.embedding_dim,
         hidden_dim=args.hidden_dim,
-        num_layers=args.lstm_layers,
+        num_layers=args.num_layers,
         num_classes=num_classes,
         dropout_prob=args.dropout
     )
@@ -296,8 +383,10 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
         # 训练
         train_loss = train_epoch(model, train_loader, optimizer, None, device, criterion)
         
-        # 验证
-        val_metrics, _, _, _ = evaluate(model, val_loader, device, criterion)
+        # 验证（使用late fusion）
+        val_metrics, val_labels, val_preds, val_probs, val_indices = evaluate_with_fusion(
+            model, val_loader, device, criterion, fusion_method=args.fusion_method
+        )
         
         print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_metrics['loss']:.4f}, "
               f"Val F1: {val_metrics['f1']:.4f}, Val ROC AUC: {val_metrics['roc_auc']:.4f}")
@@ -320,8 +409,10 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     # 加载最佳模型进行测试
     model.load_state_dict(best_model_state)
     
-    # 测试集评估
-    test_metrics, test_labels, test_preds, test_probs = evaluate(model, test_loader, device, criterion)
+    # 测试集评估（使用late fusion）
+    test_metrics, test_labels, test_preds, test_probs, test_indices = evaluate_with_fusion(
+        model, test_loader, device, criterion, fusion_method=args.fusion_method
+    )
     
     print("\n===== 最终测试集性能 =====")
     for metric_name, metric_value in test_metrics.items():
@@ -343,33 +434,38 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     return test_metrics, test_labels, test_preds, test_probs
 
 def main():
-    parser = argparse.ArgumentParser(description="中文文本分类")
+    """主函数"""
+    parser = argparse.ArgumentParser(description="中文文本分类（BERT和BiLSTM）")
     
-    # 数据参数
-    parser.add_argument("--data_file", type=str, default="./dataset/full_data_demograph_0914.xlsx",
+    # 基本参数
+    parser.add_argument("--data_file", type=str, required=True,
                         help="数据文件路径")
     parser.add_argument("--output_dir", type=str, default="./results",
                         help="输出目录")
-    parser.add_argument("--n_folds", type=int, default=10,
+    parser.add_argument("--random_state", type=int, default=42,
+                        help="随机种子")
+    parser.add_argument("--val_ratio", type=float, default=0.2,
+                        help="验证集比例")
+    parser.add_argument("--n_folds", type=int, default=5,
                         help="交叉验证折数")
     
-    # 通用参数
-    parser.add_argument("--max_seq_length", type=int, default=128,
-                        help="最大序列长度")
-    parser.add_argument("--batch_size", type=int, default=32,
+    # 训练参数
+    parser.add_argument("--batch_size", type=int, default=8,
                         help="批次大小")
-    parser.add_argument("--epochs", type=int, default=20,
+    parser.add_argument("--epochs", type=int, default=3,
                         help="训练轮数")
     parser.add_argument("--learning_rate", type=float, default=2e-5,
                         help="学习率")
     parser.add_argument("--weight_decay", type=float, default=0.01,
                         help="权重衰减")
-    parser.add_argument("--dropout", type=float, default=0.1,
-                        help="Dropout率")
-    parser.add_argument("--patience", type=int, default=3,
+    parser.add_argument("--patience", type=int, default=2,
                         help="早停耐心值")
+    parser.add_argument("--dropout", type=float, default=0.1,
+                        help="Dropout比例")
     parser.add_argument("--seed", type=int, default=42,
                         help="随机种子")
+    parser.add_argument("--max_seq_length", type=int, default=512,
+                        help="每个块的最大序列长度，固定为512")
     
     # BERT特定参数
     parser.add_argument("--bert_model_name", type=str, default="bert-base-chinese",
@@ -380,96 +476,119 @@ def main():
                         help="词嵌入维度")
     parser.add_argument("--hidden_dim", type=int, default=256,
                         help="隐藏层维度")
-    parser.add_argument("--lstm_layers", type=int, default=2,
+    parser.add_argument("--num_layers", type=int, default=2,
                         help="LSTM层数")
-    parser.add_argument("--min_word_freq", type=int, default=3,
+    parser.add_argument("--min_freq", type=int, default=2,
                         help="词汇表最小词频")
+    
+    # LongTextDataset参数
+    parser.add_argument("--max_chunks", type=int, default=10,
+                        help="每个样本最多使用的chunk数")
+    parser.add_argument("--fusion_method", type=str, default='mean',
+                        help="late fusion方法")
     
     args = parser.parse_args()
     
+    # 设置随机种子
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    
     # 加载数据
+    print("正在加载数据...")
     df = load_data(args.data_file)
     
-    # 准备k折交叉验证
-    texts, labels, fold_indices = prepare_kfold_data(df, n_splits=args.n_folds)
+    # 准备交叉验证数据集
+    texts, labels, fold_indices = prepare_kfold_data(df, n_splits=args.n_folds, random_state=args.random_state)
     
-    # 确定类别数量
+    # 获取类别数
     num_classes = len(np.unique(labels))
-    print(f"数据集中的类别数量: {num_classes}")
+    print(f"数据集中的类别数: {num_classes}")
     
-    # 存储每个模型每个fold的结果
-    bert_fold_metrics = []
-    bilstm_fold_metrics = []
+    # 存储每个fold的指标
+    bert_metrics_list = []
+    bilstm_metrics_list = []
     
+    # 存储预测结果用于最终评估
     bert_fold_predictions = []
     bilstm_fold_predictions = []
     
     # 对每个fold进行训练和评估
-    for fold_idx, (train_test_idx, test_idx) in enumerate(fold_indices):
-        print(f"\n======= 开始处理Fold {fold_idx+1}/{args.n_folds} =======")
+    for fold_idx, (train_test_indices) in enumerate(fold_indices):
+        print(f"\n========== Fold {fold_idx+1}/{args.n_folds} ==========")
         
-        # 进一步划分训练集和验证集
-        train_idx, val_idx = split_train_val(train_test_idx)
+        # 划分训练集、验证集和测试集
+        train_indices, val_indices = split_train_val(
+            train_test_indices[0], val_ratio=args.val_ratio, random_state=args.random_state
+        )
+        test_indices = train_test_indices[1]
         
-        # 准备数据
-        train_texts, train_labels = texts[train_idx], labels[train_idx]
-        val_texts, val_labels = texts[val_idx], labels[val_idx]
-        test_texts, test_labels = texts[test_idx], labels[test_idx]
+        train_texts = texts[train_indices]
+        train_labels = labels[train_indices]
+        val_texts = texts[val_indices]
+        val_labels = labels[val_indices]
+        test_texts = texts[test_indices]
+        test_labels = labels[test_indices]
         
-        print(f"训练集大小: {len(train_texts)}")
-        print(f"验证集大小: {len(val_texts)}")
-        print(f"测试集大小: {len(test_texts)}")
+        print(f"训练集大小: {len(train_texts)}, 验证集大小: {len(val_texts)}, 测试集大小: {len(test_texts)}")
         
         # 训练BERT模型
-        print("\n开始训练BERT模型...")
         bert_metrics, bert_test_labels, bert_test_preds, bert_test_probs = train_bert_model(
             fold_idx, train_texts, train_labels, val_texts, val_labels, 
             test_texts, test_labels, num_classes, args
         )
-        bert_fold_metrics.append(bert_metrics)
+        bert_metrics_list.append(bert_metrics)
         bert_fold_predictions.append((bert_test_labels, bert_test_preds, bert_test_probs))
         
         # 训练BiLSTM模型
-        print("\n开始训练BiLSTM模型...")
         bilstm_metrics, bilstm_test_labels, bilstm_test_preds, bilstm_test_probs = train_bilstm_model(
             fold_idx, train_texts, train_labels, val_texts, val_labels, 
             test_texts, test_labels, num_classes, args
         )
-        bilstm_fold_metrics.append(bilstm_metrics)
+        bilstm_metrics_list.append(bilstm_metrics)
         bilstm_fold_predictions.append((bilstm_test_labels, bilstm_test_preds, bilstm_test_probs))
     
-    # 汇总结果
-    print("\n====== BERT模型最终结果 ======")
-    bert_avg_metrics = plot_metrics(bert_fold_metrics, "BERT")
+    # 计算并保存平均指标
+    print("\n========== 最终平均性能 ==========")
+    
+    print("\nBERT模型:")
+    bert_avg_metrics = plot_metrics(bert_metrics_list, "BERT")
     for metric_name, metric_value in bert_avg_metrics.items():
         print(f"平均 {metric_name}: {metric_value:.4f}")
     
-    print("\n====== BiLSTM模型最终结果 ======")
-    bilstm_avg_metrics = plot_metrics(bilstm_fold_metrics, "BiLSTM")
+    print("\nBiLSTM模型:")
+    bilstm_avg_metrics = plot_metrics(bilstm_metrics_list, "BiLSTM")
     for metric_name, metric_value in bilstm_avg_metrics.items():
         print(f"平均 {metric_name}: {metric_value:.4f}")
     
     # 保存预测结果
-    print("\n保存预测结果...")
-    save_predictions(bert_fold_predictions, "bert", args.output_dir)
-    save_predictions(bilstm_fold_predictions, "bilstm", args.output_dir)
+    save_predictions(bert_fold_predictions, "BERT", args.output_dir)
+    save_predictions(bilstm_fold_predictions, "BiLSTM", args.output_dir)
     
-    # 保存评估指标
-    print("保存评估指标...")
-    metrics_df = pd.DataFrame({
-        'Model': ['BERT'] * len(bert_fold_metrics) + ['BiLSTM'] * len(bilstm_fold_metrics),
-        'Fold': list(range(1, len(bert_fold_metrics) + 1)) + list(range(1, len(bilstm_fold_metrics) + 1))
-    })
+    print(f"\n所有结果已保存到目录: {args.output_dir}")
     
-    # 添加所有评估指标
-    for metric in bert_fold_metrics[0].keys():
-        bert_values = [m[metric] for m in bert_fold_metrics]
-        bilstm_values = [m[metric] for m in bilstm_fold_metrics]
-        metrics_df[metric] = bert_values + bilstm_values
+    # 绘制对比图
+    plt.figure(figsize=(10, 6))
+    metrics = list(bert_avg_metrics.keys())
+    bert_values = [bert_avg_metrics[m] for m in metrics]
+    bilstm_values = [bilstm_avg_metrics[m] for m in metrics]
     
-    metrics_df.to_csv(os.path.join(args.output_dir, "all_metrics.csv"), index=False)
+    x = np.arange(len(metrics))
+    width = 0.35
     
-    print("\n所有模型训练和评估完成！")
+    plt.bar(x - width/2, bert_values, width, label='BERT')
+    plt.bar(x + width/2, bilstm_values, width, label='BiLSTM')
+    
+    plt.ylabel('分数')
+    plt.title('BERT vs BiLSTM 性能对比')
+    plt.xticks(x, metrics)
+    plt.ylim(0, 1)
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.7)
+    
+    plt.tight_layout()
+    plt.savefig(f"{args.output_dir}/model_comparison.png")
+    
+    print(f"对比图已保存到: {args.output_dir}/model_comparison.png")
 
 if __name__ == "__main__":
     main() 

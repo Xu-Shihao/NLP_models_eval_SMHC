@@ -41,6 +41,84 @@ class TextDataset(Dataset):
             'label': torch.tensor(label, dtype=torch.long)
         }
 
+class LongTextDataset(Dataset):
+    """处理长文本的数据集类，支持分段切分和late fusion"""
+    def __init__(self, texts, labels, tokenizer, chunk_length=512, max_chunks=8, is_training=True):
+        self.texts = texts
+        self.labels = labels
+        self.tokenizer = tokenizer
+        self.chunk_length = chunk_length
+        self.max_chunks = max_chunks  # 每个样本最多使用的chunk数
+        self.is_training = is_training
+        
+        # 预处理文本，切分为chunks
+        self.text_chunks = []
+        self.chunk_to_sample_idx = []  # 记录每个chunk属于哪个原始样本
+        
+        for idx, text in enumerate(texts):
+            # 编码整个文本
+            encoded = self.tokenizer.encode_plus(
+                str(text),
+                add_special_tokens=True,
+                max_length=None,  # 不限制长度
+                padding=False,
+                truncation=False,
+                return_tensors=None
+            )
+            
+            input_ids = encoded['input_ids']
+            
+            # 对长文本分段
+            chunks = []
+            
+            # 如果文本不超过 chunk_length - 2（为CLS和SEP预留位置），则不切分
+            if len(input_ids) <= chunk_length:
+                chunks.append(input_ids)
+            else:
+                # 考虑重叠的方式分段
+                step = chunk_length - 50  # 50个token的重叠
+                for i in range(0, len(input_ids), step):
+                    chunk = input_ids[i:i + chunk_length]
+                    if len(chunk) < 10:  # 太短的片段忽略
+                        continue
+                    chunks.append(chunk)
+            
+            # 训练时只随机采样一个chunk，测试时使用所有chunks（最多max_chunks个）
+            if self.is_training:
+                if len(chunks) > 0:
+                    selected_chunk = chunks[np.random.randint(0, len(chunks))]
+                    self.text_chunks.append(selected_chunk)
+                    self.chunk_to_sample_idx.append(idx)
+            else:
+                # 测试时保留所有分段（但限制数量）
+                for chunk in chunks[:self.max_chunks]:
+                    self.text_chunks.append(chunk)
+                    self.chunk_to_sample_idx.append(idx)
+    
+    def __len__(self):
+        return len(self.text_chunks)
+    
+    def __getitem__(self, idx):
+        # 获取单个chunk
+        chunk = self.text_chunks[idx]
+        sample_idx = self.chunk_to_sample_idx[idx]
+        label = self.labels[sample_idx]
+        
+        # 填充到固定长度
+        if len(chunk) > self.chunk_length:
+            chunk = chunk[:self.chunk_length]
+        
+        padding = [0] * (self.chunk_length - len(chunk))
+        attention_mask = [1] * len(chunk) + [0] * len(padding)
+        chunk = chunk + padding
+        
+        return {
+            'input_ids': torch.tensor(chunk, dtype=torch.long),
+            'attention_mask': torch.tensor(attention_mask, dtype=torch.long),
+            'label': torch.tensor(label, dtype=torch.long),
+            'sample_idx': sample_idx  # 额外返回原始样本索引，用于late fusion
+        }
+
 def load_data(file_path):
     """加载Excel数据文件"""
     df = pd.read_csv(file_path)
@@ -48,7 +126,7 @@ def load_data(file_path):
 
 def prepare_kfold_data(df, n_splits=10, random_state=42):
     """准备10折交叉验证的数据集划分"""
-    texts = df['cleaned_text'].values
+    texts = df['cleaned_text'].values if 'cleaned_text' in df.columns else df['text'].values
     labels = df['label'].values
     
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
@@ -104,6 +182,38 @@ def calculate_metrics(y_true, y_pred, y_prob):
         'balanced_accuracy': bac
     }
 
+def late_fusion(sample_indices, all_probs, fusion_method='mean'):
+    """合并同一文本多个chunks的预测结果
+    
+    Args:
+        sample_indices: 每个chunk对应的原始样本索引
+        all_probs: 所有chunk的预测概率
+        fusion_method: 融合方法，可选'mean'或'max'
+        
+    Returns:
+        unique_indices: 唯一的样本索引
+        fused_probs: 合并后的预测概率
+    """
+    unique_indices = np.unique(sample_indices)
+    fused_probs = []
+    
+    for idx in unique_indices:
+        # 找出属于同一原始样本的所有chunk预测
+        mask = (sample_indices == idx)
+        chunk_probs = all_probs[mask]
+        
+        # 根据指定方法融合预测结果
+        if fusion_method == 'mean':
+            fused_prob = np.mean(chunk_probs, axis=0)
+        elif fusion_method == 'max':
+            fused_prob = np.max(chunk_probs, axis=0)
+        else:
+            raise ValueError(f"不支持的融合方法: {fusion_method}")
+        
+        fused_probs.append(fused_prob)
+    
+    return unique_indices, np.array(fused_probs)
+
 def plot_metrics(metrics_list, title):
     """绘制多折交叉验证的性能指标图"""
     metrics_df = pd.DataFrame(metrics_list)
@@ -134,4 +244,4 @@ def save_predictions(fold_predictions, model_name, output_path):
         pred_df[f'prob_class_{i}'] = all_probs[:, i]
     
     pred_df.to_csv(f'{output_path}/{model_name}_predictions.csv', index=False)
-    return pred_df 
+    return pred_df
