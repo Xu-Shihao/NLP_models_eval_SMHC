@@ -74,13 +74,13 @@ def main():
     
     
     # 新增参数：长文本处理参数
-    parser.add_argument("--bert_learning_rate", type=float, default=2e-5,
+    parser.add_argument("--bert_learning_rate", type=float, default=2e-6,
                         help="BERT模型学习率")
-    parser.add_argument("--bilstm_learning_rate", type=float, default=1e-3,
+    parser.add_argument("--bilstm_learning_rate", type=float, default=1e-4,
                         help="BiLSTM模型学习率")
-    parser.add_argument("--warmup_ratio", type=float, default=0.1,
+    parser.add_argument("--warmup_ratio", type=float, default=0.05,
                         help="预热步数比例")
-    parser.add_argument("--lr_decay_factor", type=float, default=0.85,
+    parser.add_argument("--lr_decay_factor", type=float, default=0.9,
                         help="学习率衰减因子，值越大衰减越缓慢")
     parser.add_argument("--lr_decay_epochs", type=str, default="2,4,6,8,10,12,14,16",
                         help="学习率衰减轮数，以逗号分隔")
