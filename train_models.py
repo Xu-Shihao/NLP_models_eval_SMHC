@@ -309,6 +309,27 @@ class BiLSTMTokenizer:
             'input_ids': torch.tensor([ids], dtype=torch.long),
             'attention_mask': torch.tensor([attention_mask], dtype=torch.long)
         }
+    
+    def encode_plus(self, text, add_special_tokens=True, max_length=None, padding=False, 
+                   truncation=False, return_tensors=None, **kwargs):
+        """添加与BertTokenizer兼容的encode_plus方法"""
+        words = jieba.lcut(str(text))
+        
+        # 将单词转换为ID
+        ids = []
+        for word in words:
+            if word in self.vocab:
+                ids.append(self.vocab[word])
+            else:
+                ids.append(self.vocab["<UNK>"])
+        
+        # 创建注意力掩码
+        attention_mask = [1] * len(ids)
+        
+        return {
+            'input_ids': ids,
+            'attention_mask': attention_mask
+        }
 
 def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_labels, 
                       test_texts, test_labels, num_classes, args):
