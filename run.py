@@ -99,6 +99,10 @@ def main():
     parser.add_argument("--only_show_seq_length", action="store_true",
                         help="仅显示序列长度统计，不进行训练")
     
+    # 新增参数：GPU设备选择
+    parser.add_argument("--gpu_device", type=str, default="0",
+                        help="指定使用的GPU设备ID，例如'0'、'1'或'0,1'用于多GPU")
+    
     # wandb参数
     parser.add_argument("--wandb_project", type=str, default="AD_BERT_BiLSTM",
                         help="Weights & Biases项目名")
@@ -138,6 +142,7 @@ def main():
         "--warmup_ratio", str(args.warmup_ratio),
         "--lr_decay_factor", str(args.lr_decay_factor),
         "--lr_decay_epochs", args.lr_decay_epochs,
+        "--gpu_device", args.gpu_device,
     ]
     
     # 添加模型训练选择参数

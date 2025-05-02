@@ -104,8 +104,14 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     
-    # 设置device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # 设置device，支持指定GPU
+    if torch.cuda.is_available():
+        device_str = f"cuda:{args.gpu_device}" if args.gpu_device.isdigit() else "cuda:0"
+        device = torch.device(device_str)
+        print(f"使用GPU设备: {device_str}")
+    else:
+        device = torch.device("cpu")
+        print("使用CPU进行训练")
     
     # 加载分词器
     tokenizer = BertTokenizer.from_pretrained(args.bert_model_name)
@@ -379,8 +385,14 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     
-    # 设置device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # 设置device，支持指定GPU
+    if torch.cuda.is_available():
+        device_str = f"cuda:{args.gpu_device}" if args.gpu_device.isdigit() else "cuda:0"
+        device = torch.device(device_str)
+        print(f"使用GPU设备: {device_str}")
+    else:
+        device = torch.device("cpu")
+        print("使用CPU进行训练")
     
     # 构建词汇表
     all_train_texts = np.concatenate([train_texts, val_texts])
@@ -598,6 +610,10 @@ def main():
                         help="是否训练BERT模型")
     parser.add_argument("--train_bilstm", action="store_true", 
                         help="是否训练BiLSTM模型")
+    
+    # 新增参数: GPU设备选择
+    parser.add_argument("--gpu_device", type=str, default="0",
+                        help="指定使用的GPU设备ID，例如'0'、'1'或'0,1'用于多GPU")
     
     args = parser.parse_args()
     
