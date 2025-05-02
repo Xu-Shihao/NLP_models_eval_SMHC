@@ -12,6 +12,7 @@ from tqdm import tqdm
 import jieba
 from collections import Counter
 import matplotlib.pyplot as plt
+import wandb
 
 from models import BertClassifier, BiLSTMClassifier
 from utils import (
@@ -19,7 +20,7 @@ from utils import (
     calculate_metrics, plot_metrics, save_predictions, late_fusion
 )
 
-def train_epoch(model, data_loader, optimizer, scheduler, device, criterion):
+def train_epoch(model, data_loader, optimizer, scheduler, device, criterion, epoch=None, model_type=None):
     """训练一个epoch"""
     model.train()
     total_loss = 0
@@ -46,6 +47,17 @@ def train_epoch(model, data_loader, optimizer, scheduler, device, criterion):
         total_loss += loss.item()
     
     avg_loss = total_loss / len(data_loader)
+    
+    # 记录到wandb
+    if epoch is not None and model_type is not None:
+        # 获取当前学习率
+        current_lr = optimizer.param_groups[0]['lr']
+        wandb.log({
+            f"{model_type}_train_loss": avg_loss, 
+            f"{model_type}_lr": current_lr,
+            "epoch": epoch
+        })
+        
     return avg_loss
 
 def evaluate(model, data_loader, device, criterion):
@@ -155,11 +167,11 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
         print(f"Epoch {epoch+1}/{args.epochs}")
         
         # 训练
-        train_loss = train_epoch(model, train_loader, optimizer, scheduler, device, criterion)
+        train_loss = train_epoch(model, train_loader, optimizer, scheduler, device, criterion, epoch, "BERT")
         
         # 验证（使用late fusion）
         val_metrics, val_labels, val_preds, val_probs, val_indices = evaluate_with_fusion(
-            model, val_loader, device, criterion, fusion_method=args.fusion_method
+            model, val_loader, device, criterion, fusion_method=args.fusion_method, mode="val", epoch=epoch, fold=fold_idx, model_type="BERT"
         )
         
         print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_metrics['loss']:.4f}, "
@@ -185,7 +197,7 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     
     # 测试集评估（使用late fusion）
     test_metrics, test_labels, test_preds, test_probs, test_indices = evaluate_with_fusion(
-        model, test_loader, device, criterion, fusion_method=args.fusion_method
+        model, test_loader, device, criterion, fusion_method=args.fusion_method, mode="test", epoch=None, fold=fold_idx, model_type="BERT"
     )
     
     print("\n===== 最终测试集性能 =====")
@@ -206,7 +218,7 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     
     return test_metrics, test_labels, test_preds, test_probs
 
-def evaluate_with_fusion(model, data_loader, device, criterion, fusion_method='mean'):
+def evaluate_with_fusion(model, data_loader, device, criterion, fusion_method='mean', mode=None, epoch=None, fold=None, model_type=None):
     """在验证/测试集上评估模型，并使用late fusion合并结果"""
     model.eval()
     total_loss = 0
@@ -253,6 +265,14 @@ def evaluate_with_fusion(model, data_loader, device, criterion, fusion_method='m
     # 平均损失
     avg_loss = total_loss / len(data_loader)
     metrics['loss'] = avg_loss
+    
+    # 记录到wandb
+    if mode and epoch is not None and fold is not None and model_type is not None:
+        # 构建日志字典，添加前缀以区分不同模型、验证集和测试集
+        log_dict = {f"{model_type}_{mode}_{k}": v for k, v in metrics.items()}
+        log_dict["epoch"] = epoch
+        log_dict["fold"] = fold
+        wandb.log(log_dict)
     
     return metrics, fused_labels, fused_preds, fused_probs, unique_indices
 
@@ -402,11 +422,11 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
         print(f"Epoch {epoch+1}/{args.epochs}")
         
         # 训练
-        train_loss = train_epoch(model, train_loader, optimizer, None, device, criterion)
+        train_loss = train_epoch(model, train_loader, optimizer, None, device, criterion, epoch, "BiLSTM")
         
         # 验证（使用late fusion）
         val_metrics, val_labels, val_preds, val_probs, val_indices = evaluate_with_fusion(
-            model, val_loader, device, criterion, fusion_method=args.fusion_method
+            model, val_loader, device, criterion, fusion_method=args.fusion_method, mode="val", epoch=epoch, fold=fold_idx, model_type="BiLSTM"
         )
         
         print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_metrics['loss']:.4f}, "
@@ -432,7 +452,7 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     
     # 测试集评估（使用late fusion）
     test_metrics, test_labels, test_preds, test_probs, test_indices = evaluate_with_fusion(
-        model, test_loader, device, criterion, fusion_method=args.fusion_method
+        model, test_loader, device, criterion, fusion_method=args.fusion_method, mode="test", epoch=None, fold=fold_idx, model_type="BiLSTM"
     )
     
     print("\n===== 最终测试集性能 =====")
@@ -508,6 +528,14 @@ def main():
     parser.add_argument("--fusion_method", type=str, default='mean',
                         help="late fusion方法")
     
+    # wandb参数
+    parser.add_argument("--wandb_project", type=str, default="chinese_text_classification",
+                        help="Weights & Biases项目名")
+    parser.add_argument("--wandb_entity", type=str, default=None,
+                        help="Weights & Biases用户名或团队名")
+    parser.add_argument("--use_wandb", action="store_true",
+                        help="是否使用wandb记录训练过程")
+    
     args = parser.parse_args()
     
     # 设置随机种子
@@ -553,6 +581,18 @@ def main():
         print(f"训练集大小: {len(train_texts)}, 验证集大小: {len(val_texts)}, 测试集大小: {len(test_texts)}")
         
         # 训练BERT模型
+        if args.use_wandb:
+            # 为BERT模型创建新的wandb运行
+            run_name = f"BERT_fold_{fold_idx+1}"
+            wandb.init(
+                project=args.wandb_project,
+                entity=args.wandb_entity,
+                name=run_name,
+                group="BERT",
+                config=vars(args),
+                reinit=True
+            )
+            
         bert_metrics, bert_test_labels, bert_test_preds, bert_test_probs = train_bert_model(
             fold_idx, train_texts, train_labels, val_texts, val_labels, 
             test_texts, test_labels, num_classes, args
@@ -560,13 +600,47 @@ def main():
         bert_metrics_list.append(bert_metrics)
         bert_fold_predictions.append((bert_test_labels, bert_test_preds, bert_test_probs))
         
+        # 记录BERT最终测试指标
+        if args.use_wandb:
+            for metric_name, metric_value in bert_metrics.items():
+                wandb.run.summary[f"BERT_test_{metric_name}"] = metric_value
+            wandb.finish()  # 结束BERT运行
+        
         # 训练BiLSTM模型
+        if args.use_wandb:
+            # 为BiLSTM模型创建新的wandb运行
+            run_name = f"BiLSTM_fold_{fold_idx+1}"
+            wandb.init(
+                project=args.wandb_project,
+                entity=args.wandb_entity,
+                name=run_name,
+                group="BiLSTM",
+                config=vars(args),
+                reinit=True
+            )
+            
         bilstm_metrics, bilstm_test_labels, bilstm_test_preds, bilstm_test_probs = train_bilstm_model(
             fold_idx, train_texts, train_labels, val_texts, val_labels, 
             test_texts, test_labels, num_classes, args
         )
         bilstm_metrics_list.append(bilstm_metrics)
         bilstm_fold_predictions.append((bilstm_test_labels, bilstm_test_preds, bilstm_test_probs))
+        
+        # 记录BiLSTM最终测试指标
+        if args.use_wandb:
+            for metric_name, metric_value in bilstm_metrics.items():
+                wandb.run.summary[f"BiLSTM_test_{metric_name}"] = metric_value
+            wandb.finish()  # 结束BiLSTM运行
+    
+    # 创建一个最终的运行来记录平均性能
+    if args.use_wandb:
+        wandb.init(
+            project=args.wandb_project,
+            entity=args.wandb_entity,
+            name="Final_Comparison",
+            config=vars(args),
+            reinit=True
+        )
     
     # 计算并保存平均指标
     print("\n========== 最终平均性能 ==========")
@@ -575,11 +649,15 @@ def main():
     bert_avg_metrics = plot_metrics(bert_metrics_list, "BERT")
     for metric_name, metric_value in bert_avg_metrics.items():
         print(f"平均 {metric_name}: {metric_value:.4f}")
+        if args.use_wandb:
+            wandb.run.summary[f"avg_BERT_{metric_name}"] = metric_value
     
     print("\nBiLSTM模型:")
     bilstm_avg_metrics = plot_metrics(bilstm_metrics_list, "BiLSTM")
     for metric_name, metric_value in bilstm_avg_metrics.items():
         print(f"平均 {metric_name}: {metric_value:.4f}")
+        if args.use_wandb:
+            wandb.run.summary[f"avg_BiLSTM_{metric_name}"] = metric_value
     
     # 保存预测结果
     save_predictions(bert_fold_predictions, "BERT", args.output_dir)
@@ -608,6 +686,11 @@ def main():
     
     plt.tight_layout()
     plt.savefig(f"{args.output_dir}/model_comparison.png")
+    
+    # 上传图表到wandb
+    if args.use_wandb:
+        wandb.log({"performance_comparison": wandb.Image(f"{args.output_dir}/model_comparison.png")})
+        wandb.finish()
     
     print(f"对比图已保存到: {args.output_dir}/model_comparison.png")
 

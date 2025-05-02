@@ -112,6 +112,7 @@ def main():
         "--max_chunks", str(args.max_chunks),
         "--fusion_method", args.fusion_method,
         "--learning_rate", str(args.learning_rate),
+        "--use_wandb"
     ]
     
     # 执行训练脚本
