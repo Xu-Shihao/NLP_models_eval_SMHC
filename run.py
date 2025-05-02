@@ -192,6 +192,8 @@ def main():
         print("仅训练BiLSTM模型")
     else:
         print("训练BERT和BiLSTM模型")
+        
+    print("================================================")
     
     # 显示数据分割模式
     if args.use_single_split:

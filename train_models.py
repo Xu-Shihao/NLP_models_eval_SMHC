@@ -221,16 +221,8 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     # 加载分词器
     tokenizer = BertTokenizer.from_pretrained(args.bert_model_name)
     
-    # 使用LongTextDataset处理长文本
+    # 初始化验证集和测试集dataset（这些不需要每个epoch重新初始化）
     chunk_length = 512  # 固定chunk长度为512
-    train_dataset = LongTextDataset(
-        train_texts, train_labels, tokenizer, 
-        chunk_length=chunk_length, 
-        max_chunks=args.max_chunks, 
-        is_training=True, 
-        num_workers=args.preprocess_workers,
-        batch_size=args.preprocess_batch_size
-    )
     val_dataset = LongTextDataset(
         val_texts, val_labels, tokenizer, 
         chunk_length=chunk_length, 
@@ -248,8 +240,7 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
         batch_size=args.preprocess_batch_size
     )
     
-    # 创建DataLoader
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    # 创建验证集和测试集的DataLoader
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size)
     
@@ -266,12 +257,12 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     optimizer = optim.AdamW(model.parameters(), lr=args.bert_learning_rate, weight_decay=args.weight_decay)
     
     # 学习率调度器 - 移除warmup，仅使用衰减策略
-    total_steps = len(train_loader) * args.epochs
+    total_steps = len(train_texts) // args.batch_size * args.epochs
     
     # 解析lr_decay_epochs字符串为列表
     decay_epochs = [int(e) for e in args.lr_decay_epochs.split(",")]
     # 转换成步数
-    decay_steps = [len(train_loader) * epoch for epoch in decay_epochs]
+    decay_steps = [len(train_texts) // args.batch_size * epoch for epoch in decay_epochs]
     
     # 根据选择的学习率调度器类型创建相应的调度器
     if args.lr_scheduler == "step":
@@ -315,7 +306,19 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     for epoch in range(args.epochs):
         print(f"Epoch {epoch+1}/{args.epochs}")
         
-        # 使用新的train_epoch_with_fusion进行训练
+        # 在每个epoch开始时重新初始化训练集dataset和dataloader
+        # 这样每个epoch都会为每个样本重新随机选择chunk
+        train_dataset = LongTextDataset(
+            train_texts, train_labels, tokenizer, 
+            chunk_length=chunk_length, 
+            max_chunks=args.max_chunks, 
+            is_training=True, 
+            num_workers=args.preprocess_workers,
+            batch_size=args.preprocess_batch_size
+        )
+        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+        
+        # 使用train_epoch_with_fusion进行训练
         train_loss = train_epoch_with_fusion(
             model, train_loader, optimizer, scheduler, device, criterion, 
             fusion_method=args.fusion_method, epoch=epoch, fold=fold_idx, model_type="BERT"
@@ -535,16 +538,8 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     # 自定义分词器
     tokenizer = BiLSTMTokenizer(vocab, max_length=args.max_seq_length)
     
-    # 使用LongTextDataset处理长文本
+    # 初始化验证集和测试集dataset（这些不需要每个epoch重新初始化）
     chunk_length = 512  # 固定chunk长度为512
-    train_dataset = LongTextDataset(
-        train_texts, train_labels, tokenizer, 
-        chunk_length=chunk_length, 
-        max_chunks=args.max_chunks, 
-        is_training=True, 
-        num_workers=args.preprocess_workers,
-        batch_size=args.preprocess_batch_size
-    )
     val_dataset = LongTextDataset(
         val_texts, val_labels, tokenizer, 
         chunk_length=chunk_length, 
@@ -562,8 +557,7 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
         batch_size=args.preprocess_batch_size
     )
     
-    # 创建DataLoader
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    # 创建验证集和测试集的DataLoader
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size)
     
@@ -583,12 +577,12 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     optimizer = optim.Adam(model.parameters(), lr=args.bilstm_learning_rate, weight_decay=args.weight_decay)
     
     # 学习率调度器 - 移除warmup，仅使用衰减策略
-    total_steps = len(train_loader) * args.epochs
+    total_steps = len(train_texts) // args.batch_size * args.epochs
     
     # 解析lr_decay_epochs字符串为列表
     decay_epochs = [int(e) for e in args.lr_decay_epochs.split(",")]
     # 转换成步数
-    decay_steps = [len(train_loader) * epoch for epoch in decay_epochs]
+    decay_steps = [len(train_texts) // args.batch_size * epoch for epoch in decay_epochs]
     
     # 根据选择的学习率调度器类型创建相应的调度器
     if args.lr_scheduler == "step":
@@ -632,7 +626,19 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     for epoch in range(args.epochs):
         print(f"Epoch {epoch+1}/{args.epochs}")
         
-        # 使用新的train_epoch_with_fusion进行训练
+        # 在每个epoch开始时重新初始化训练集dataset和dataloader
+        # 这样每个epoch都会为每个样本重新随机选择chunk
+        train_dataset = LongTextDataset(
+            train_texts, train_labels, tokenizer, 
+            chunk_length=chunk_length, 
+            max_chunks=args.max_chunks, 
+            is_training=True, 
+            num_workers=args.preprocess_workers,
+            batch_size=args.preprocess_batch_size
+        )
+        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+        
+        # 使用train_epoch_with_fusion进行训练
         train_loss = train_epoch_with_fusion(
             model, train_loader, optimizer, scheduler, device, criterion, 
             fusion_method=args.fusion_method, epoch=epoch, fold=fold_idx, model_type="BiLSTM"
