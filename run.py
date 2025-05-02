@@ -61,11 +61,11 @@ def main():
                         help="输出目录")
     parser.add_argument("--n_folds", type=int, default=10,
                         help="交叉验证折数")
-    parser.add_argument("--batch_size", type=int, default=1,
+    parser.add_argument("--batch_size", type=int, default=16,
                         help="批次大小")
     parser.add_argument("--max_seq_length", type=int, default=512,
                         help="每个块的最大序列长度，固定为512")
-    parser.add_argument("--epochs", type=int, default=2,
+    parser.add_argument("--epochs", type=int, default=100,
                         help="训练轮数")
     
     # BERT特定参数
@@ -84,6 +84,14 @@ def main():
     # 新增参数：是否仅显示序列长度统计
     parser.add_argument("--only_show_seq_length", action="store_true",
                         help="仅显示序列长度统计，不进行训练")
+    
+    # wandb参数
+    parser.add_argument("--wandb_project", type=str, default="AD_BERT_BiLSTM",
+                        help="Weights & Biases项目名")
+    parser.add_argument("--wandb_entity", type=str, default=None,
+                        help="Weights & Biases用户名或团队名")
+    parser.add_argument("--use_wandb", action="store_true",
+                        help="是否使用wandb记录训练过程")
     
     args = parser.parse_args()
     
@@ -112,8 +120,19 @@ def main():
         "--max_chunks", str(args.max_chunks),
         "--fusion_method", args.fusion_method,
         "--learning_rate", str(args.learning_rate),
-        "--use_wandb"
     ]
+    
+    # 如果启用wandb，添加相应参数
+    if hasattr(args, "use_wandb") and args.use_wandb:
+        cmd.append("--use_wandb")
+    
+    # 如果设置了wandb项目名，添加相应参数
+    if hasattr(args, "wandb_project") and args.wandb_project:
+        cmd.extend(["--wandb_project", args.wandb_project])
+    
+    # 如果设置了wandb实体，添加相应参数
+    if hasattr(args, "wandb_entity") and args.wandb_entity:
+        cmd.extend(["--wandb_entity", args.wandb_entity])
     
     # 执行训练脚本
     print("\n开始训练...")
