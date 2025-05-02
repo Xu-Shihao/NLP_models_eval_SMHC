@@ -72,7 +72,10 @@ def main():
     parser.add_argument("--bert_model_name", type=str, default="hfl/chinese-roberta-wwm-ext-large",
                         help="BERT预训练模型名称")
     
+    
     # 新增参数：长文本处理参数
+    parser.add_argument("--learning_rate", type=float, default=1e-5,
+                                   help="每个样本最多使用的chunk数")
     parser.add_argument("--max_chunks", type=int, default=15,
                         help="每个样本最多使用的chunk数")
     parser.add_argument("--fusion_method", type=str, default='mean', choices=['mean', 'max'],
@@ -107,7 +110,8 @@ def main():
         "--epochs", str(args.epochs),
         "--bert_model_name", args.bert_model_name,
         "--max_chunks", str(args.max_chunks),
-        "--fusion_method", args.fusion_method
+        "--fusion_method", args.fusion_method,
+        "--learning_rate", str(args.learning_rate),
     ]
     
     # 执行训练脚本
