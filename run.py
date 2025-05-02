@@ -86,7 +86,7 @@ def main():
                         help="学习率衰减轮数，以逗号分隔")
     parser.add_argument("--lr_scheduler", type=str, default="linear", choices=['step', 'linear', 'cosine'],
                         help="学习率调度器类型：step(阶梯式衰减)、linear(线性衰减)、cosine(余弦退火)")
-    parser.add_argument("--max_chunks", type=int, default=15,
+    parser.add_argument("--max_chunks", type=int, default=5,
                         help="每个样本最多使用的chunk数")
     parser.add_argument("--fusion_method", type=str, default='mean', choices=['mean', 'max'],
                         help="late fusion方法，可选'mean'或'max'")

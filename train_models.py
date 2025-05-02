@@ -759,7 +759,7 @@ def main():
                         help="词汇表最小词频")
     
     # LongTextDataset参数
-    parser.add_argument("--max_chunks", type=int, default=10,
+    parser.add_argument("--max_chunks", type=int, default=5,
                         help="每个样本最多使用的chunk数")
     parser.add_argument("--fusion_method", type=str, default='mean',
                         help="late fusion方法")

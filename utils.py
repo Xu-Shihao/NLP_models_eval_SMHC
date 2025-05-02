@@ -43,7 +43,7 @@ class TextDataset(Dataset):
 
 class LongTextDataset(Dataset):
     """处理长文本的数据集类，支持分段切分和late fusion"""
-    def __init__(self, texts, labels, tokenizer, chunk_length=512, max_chunks=8, is_training=True):
+    def __init__(self, texts, labels, tokenizer, chunk_length=512, max_chunks=5, is_training=True):
         self.texts = texts
         self.labels = labels
         self.tokenizer = tokenizer
