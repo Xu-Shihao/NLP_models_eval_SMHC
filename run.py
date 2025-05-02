@@ -57,7 +57,7 @@ def main():
     # 基本参数
     parser.add_argument("--data_file", type=str, default="./dataset/AD_clean_text.csv",
                         help="数据文件路径")
-    parser.add_argument("--output_dir", type=str, default="./results",
+    parser.add_argument("--output_dir", type=str, default="./results/AD_BERT_BiLSTM",
                         help="输出目录")
     parser.add_argument("--n_folds", type=int, default=10,
                         help="交叉验证折数")
