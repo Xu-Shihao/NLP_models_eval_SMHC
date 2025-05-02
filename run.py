@@ -61,6 +61,10 @@ def main():
                         help="输出目录")
     parser.add_argument("--n_folds", type=int, default=10,
                         help="交叉验证折数")
+    parser.add_argument("--use_single_split", action="store_true",
+                        help="是否只使用一个训练/验证/测试集分割而不进行k-fold交叉验证")
+    parser.add_argument("--val_ratio", type=float, default=0.2,
+                        help="验证集比例，在交叉验证和单一数据分割模式下都使用")
     parser.add_argument("--batch_size", type=int, default=10,
                         help="批次大小")
     parser.add_argument("--max_seq_length", type=int, default=512,
@@ -78,8 +82,6 @@ def main():
                         help="BERT模型学习率")
     parser.add_argument("--bilstm_learning_rate", type=float, default=1e-3,
                         help="BiLSTM模型学习率")
-    parser.add_argument("--warmup_ratio", type=float, default=0.05,
-                        help="预热步数比例")
     parser.add_argument("--lr_decay_factor", type=float, default=0.9,
                         help="学习率衰减因子，值越大衰减越缓慢")
     parser.add_argument("--lr_decay_epochs", type=str, default="2,4,6,8,10,12,14,16",
@@ -90,6 +92,8 @@ def main():
                         help="每个样本最多使用的chunk数")
     parser.add_argument("--fusion_method", type=str, default='mean', choices=['mean', 'max'],
                         help="late fusion方法，可选'mean'或'max'")
+    parser.add_argument("--train_single_chunk", action="store_true",
+                        help="训练时每个样本是否只随机选择1个chunk")
     
     # 新增参数：模型选择和训练模式
     parser.add_argument("--train_bert", action="store_true",
@@ -113,6 +117,14 @@ def main():
     parser.add_argument("--use_wandb", action="store_true",
                         help="是否使用wandb记录训练过程")
     
+    # 注释：数据分割说明
+    # 1. 默认情况下使用n_folds折交叉验证（默认为10折）
+    # 2. 如果使用--use_single_split，则:
+    #    a. 首先以val_ratio（默认0.2）的比例分割出测试集
+    #    b. 然后从剩余的训练数据中以val_ratio的比例分割出验证集
+    #    c. 剩余的数据作为训练集
+    # 例如，当val_ratio=0.2时，数据集的最终分割为：训练集64%、验证集16%、测试集20%
+    
     args = parser.parse_args()
     
     # 如果仅需要显示序列长度，则执行分析并退出
@@ -133,6 +145,7 @@ def main():
         "--data_file", args.data_file,
         "--output_dir", args.output_dir,
         "--n_folds", str(args.n_folds),
+        "--val_ratio", str(args.val_ratio),
         "--batch_size", str(args.batch_size),
         "--max_seq_length", str(args.max_seq_length),
         "--epochs", str(args.epochs),
@@ -141,7 +154,6 @@ def main():
         "--fusion_method", args.fusion_method,
         "--bert_learning_rate", str(args.bert_learning_rate),
         "--bilstm_learning_rate", str(args.bilstm_learning_rate),
-        "--warmup_ratio", str(args.warmup_ratio),
         "--lr_decay_factor", str(args.lr_decay_factor),
         "--lr_decay_epochs", args.lr_decay_epochs,
         "--lr_scheduler", args.lr_scheduler,
@@ -155,7 +167,9 @@ def main():
     if args.train_bilstm:
         cmd.append("--train_bilstm")
     
-    # 如果两者都未指定，默认情况下两个模型都会训练（由train_models.py处理）
+    # 添加单一数据分割参数
+    if args.use_single_split:
+        cmd.append("--use_single_split")
     
     # 如果启用wandb，添加相应参数
     if hasattr(args, "use_wandb") and args.use_wandb:
@@ -178,6 +192,12 @@ def main():
         print("仅训练BiLSTM模型")
     else:
         print("训练BERT和BiLSTM模型")
+    
+    # 显示数据分割模式
+    if args.use_single_split:
+        print(f"使用单一数据分割模式（验证集和测试集比例: {args.val_ratio}）")
+    else:
+        print(f"使用{args.n_folds}折交叉验证")
     
     print(f"输出目录: {args.output_dir}")
     print(f"执行命令: {' '.join(cmd)}")

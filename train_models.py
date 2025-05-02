@@ -14,6 +14,7 @@ from collections import Counter
 import matplotlib.pyplot as plt
 import wandb
 import math
+from sklearn.model_selection import train_test_split
 
 from models import BertClassifier, BiLSTMClassifier
 from utils import (
@@ -226,19 +227,25 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
         train_texts, train_labels, tokenizer, 
         chunk_length=chunk_length, 
         max_chunks=args.max_chunks, 
-        is_training=True  # 现在训练和评估都使用多个chunks
+        is_training=True, 
+        num_workers=args.preprocess_workers,
+        batch_size=args.preprocess_batch_size
     )
     val_dataset = LongTextDataset(
         val_texts, val_labels, tokenizer, 
         chunk_length=chunk_length, 
         max_chunks=args.max_chunks, 
-        is_training=False
+        is_training=False,
+        num_workers=args.preprocess_workers,
+        batch_size=args.preprocess_batch_size
     )
     test_dataset = LongTextDataset(
         test_texts, test_labels, tokenizer, 
         chunk_length=chunk_length, 
         max_chunks=args.max_chunks, 
-        is_training=False
+        is_training=False,
+        num_workers=args.preprocess_workers,
+        batch_size=args.preprocess_batch_size
     )
     
     # 创建DataLoader
@@ -258,9 +265,8 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=args.bert_learning_rate, weight_decay=args.weight_decay)
     
-    # 学习率调度器 - 添加warmup和不同类型的衰减策略
+    # 学习率调度器 - 移除warmup，仅使用衰减策略
     total_steps = len(train_loader) * args.epochs
-    warmup_steps = int(args.epochs * args.warmup_ratio) * len(train_loader)
     
     # 解析lr_decay_epochs字符串为列表
     decay_epochs = [int(e) for e in args.lr_decay_epochs.split(",")]
@@ -271,10 +277,6 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     if args.lr_scheduler == "step":
         # 阶梯式衰减
         def lr_lambda(step):
-            # Warmup阶段
-            if step < warmup_steps:
-                return float(step) / float(max(1, warmup_steps))
-            
             # Step Decay阶段
             decay_factor = 1.0
             for decay_step in decay_steps:
@@ -285,21 +287,13 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     elif args.lr_scheduler == "linear":
         # 线性衰减
         def lr_lambda(step):
-            # Warmup阶段
-            if step < warmup_steps:
-                return float(step) / float(max(1, warmup_steps))
-            
             # 线性衰减阶段
-            return max(0.0, float(total_steps - step) / float(max(1, total_steps - warmup_steps)))
+            return max(0.0, float(total_steps - step) / float(total_steps))
     elif args.lr_scheduler == "cosine":
         # 余弦退火
         def lr_lambda(step):
-            # Warmup阶段
-            if step < warmup_steps:
-                return float(step) / float(max(1, warmup_steps))
-            
             # 余弦退火阶段
-            progress = float(step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+            progress = float(step) / float(total_steps)
             return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
     
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
@@ -307,7 +301,6 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     # 打印学习率调度器信息
     print(f"使用学习率调度器: {args.lr_scheduler}")
     print(f"初始学习率: {args.bert_learning_rate}")
-    print(f"预热epoch比例: {args.warmup_ratio} (总共 {int(args.epochs * args.warmup_ratio)} 个epoch, {warmup_steps} 步)")
     if args.lr_scheduler == "step":
         print(f"学习率衰减因子: {args.lr_decay_factor}")
         print(f"学习率衰减轮数: {args.lr_decay_epochs}")
@@ -335,6 +328,10 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
         
         print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_metrics['loss']:.4f}, "
               f"Val F1: {val_metrics['f1']:.4f}, Val ROC AUC: {val_metrics['roc_auc']:.4f}")
+        
+        # 打印当前学习率
+        current_lr = optimizer.param_groups[0]['lr']
+        print(f"当前学习率: {current_lr:.8e}")
         
         # 保存最佳模型
         if best_val_metrics is None or val_metrics['f1'] > best_val_metrics['f1']:
@@ -544,19 +541,25 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
         train_texts, train_labels, tokenizer, 
         chunk_length=chunk_length, 
         max_chunks=args.max_chunks, 
-        is_training=True  # 现在训练和评估都使用多个chunks
+        is_training=True, 
+        num_workers=args.preprocess_workers,
+        batch_size=args.preprocess_batch_size
     )
     val_dataset = LongTextDataset(
         val_texts, val_labels, tokenizer, 
         chunk_length=chunk_length, 
         max_chunks=args.max_chunks, 
-        is_training=False
+        is_training=False,
+        num_workers=args.preprocess_workers,
+        batch_size=args.preprocess_batch_size
     )
     test_dataset = LongTextDataset(
         test_texts, test_labels, tokenizer, 
         chunk_length=chunk_length, 
         max_chunks=args.max_chunks, 
-        is_training=False
+        is_training=False,
+        num_workers=args.preprocess_workers,
+        batch_size=args.preprocess_batch_size
     )
     
     # 创建DataLoader
@@ -579,9 +582,8 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.bilstm_learning_rate, weight_decay=args.weight_decay)
     
-    # 学习率调度器 - 添加warmup和不同类型的衰减策略
+    # 学习率调度器 - 移除warmup，仅使用衰减策略
     total_steps = len(train_loader) * args.epochs
-    warmup_steps = int(args.epochs * args.warmup_ratio) * len(train_loader)
     
     # 解析lr_decay_epochs字符串为列表
     decay_epochs = [int(e) for e in args.lr_decay_epochs.split(",")]
@@ -592,10 +594,6 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     if args.lr_scheduler == "step":
         # 阶梯式衰减
         def lr_lambda(step):
-            # Warmup阶段
-            if step < warmup_steps:
-                return float(step) / float(max(1, warmup_steps))
-            
             # Step Decay阶段
             decay_factor = 1.0
             for decay_step in decay_steps:
@@ -606,21 +604,13 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     elif args.lr_scheduler == "linear":
         # 线性衰减
         def lr_lambda(step):
-            # Warmup阶段
-            if step < warmup_steps:
-                return float(step) / float(max(1, warmup_steps))
-            
             # 线性衰减阶段
-            return max(0.0, float(total_steps - step) / float(max(1, total_steps - warmup_steps)))
+            return max(0.0, float(total_steps - step) / float(total_steps))
     elif args.lr_scheduler == "cosine":
         # 余弦退火
         def lr_lambda(step):
-            # Warmup阶段
-            if step < warmup_steps:
-                return float(step) / float(max(1, warmup_steps))
-            
             # 余弦退火阶段
-            progress = float(step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+            progress = float(step) / float(total_steps)
             return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
     
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
@@ -628,7 +618,6 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     # 打印学习率调度器信息
     print(f"使用学习率调度器: {args.lr_scheduler}")
     print(f"初始学习率: {args.bilstm_learning_rate}")
-    print(f"预热epoch比例: {args.warmup_ratio} (总共 {int(args.epochs * args.warmup_ratio)} 个epoch, {warmup_steps} 步)")
     if args.lr_scheduler == "step":
         print(f"学习率衰减因子: {args.lr_decay_factor}")
         print(f"学习率衰减轮数: {args.lr_decay_epochs}")
@@ -656,6 +645,10 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
         
         print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_metrics['loss']:.4f}, "
               f"Val F1: {val_metrics['f1']:.4f}, Val ROC AUC: {val_metrics['roc_auc']:.4f}")
+        
+        # 打印当前学习率
+        current_lr = optimizer.param_groups[0]['lr']
+        print(f"当前学习率: {current_lr:.8e}")
         
         # 保存最佳模型
         if best_val_metrics is None or val_metrics['f1'] > best_val_metrics['f1']:
@@ -715,8 +708,10 @@ def main():
                         help="随机种子")
     parser.add_argument("--val_ratio", type=float, default=0.2,
                         help="验证集比例")
-    parser.add_argument("--n_folds", type=int, default=5,
+    parser.add_argument("--n_folds", type=int, default=10,
                         help="交叉验证折数")
+    parser.add_argument("--use_single_split", action="store_true",
+                        help="是否只使用一个训练/验证/测试集分割而不进行k-fold交叉验证")
     
     # 训练参数
     parser.add_argument("--batch_size", type=int, default=8,
@@ -727,8 +722,6 @@ def main():
                         help="BERT学习率")
     parser.add_argument("--bilstm_learning_rate", type=float, default=1e-3,
                         help="BiLSTM学习率")
-    parser.add_argument("--warmup_ratio", type=float, default=0.1,
-                        help="预热epoch比例")
     parser.add_argument("--lr_decay_factor", type=float, default=0.1,
                         help="学习率衰减因子")
     parser.add_argument("--lr_decay_epochs", type=str, default="2,4",
@@ -763,6 +756,12 @@ def main():
                         help="每个样本最多使用的chunk数")
     parser.add_argument("--fusion_method", type=str, default='mean',
                         help="late fusion方法")
+    
+    # 新增并行处理参数
+    parser.add_argument("--preprocess_workers", type=int, default=4,
+                        help="文本预处理的并行工作线程数")
+    parser.add_argument("--preprocess_batch_size", type=int, default=32,
+                        help="文本预处理的批处理大小")
     
     # wandb参数
     parser.add_argument("--wandb_project", type=str, default="chinese_text_classification",
@@ -805,248 +804,442 @@ def main():
     print("正在加载数据...")
     df = load_data(args.data_file)
     
-    # 准备交叉验证数据集
-    texts, labels, fold_indices = prepare_kfold_data(df, n_splits=args.n_folds, random_state=args.random_state)
-    
-    # 获取类别数
-    num_classes = len(np.unique(labels))
-    print(f"数据集中的类别数: {num_classes}")
-    
-    # 存储每个fold的指标
-    bert_metrics_list = []
-    bilstm_metrics_list = []
-    
-    # 存储预测结果用于最终评估
-    bert_fold_predictions = []
-    bilstm_fold_predictions = []
-    
-    # 先训练所有fold的BERT模型
-    if args.train_bert:
-        print("\n========== 开始训练BERT模型 ==========")
+    # 处理数据分割
+    if args.use_single_split:
+        print(f"使用单一数据分割模式（验证集比例: {args.val_ratio}）")
+        # 直接划分训练集和测试集
+        texts = df['cleaned_text'].values if 'cleaned_text' in df.columns else df['text'].values
+        labels = df['label'].values
         
-        for fold_idx, (train_test_indices) in enumerate(fold_indices):
-            print(f"\n========== BERT: Fold {fold_idx+1}/{args.n_folds} ==========")
-            
-            # 检查该fold的模型是否已存在
-            bert_model_path = os.path.join(args.output_dir, f"bert_fold_{fold_idx+1}.pt")
-            if os.path.exists(bert_model_path):
-                print(f"加载已存在的BERT模型: {bert_model_path}")
-                checkpoint = torch.load(bert_model_path)
-                bert_metrics = checkpoint['test_metrics']
-                bert_test_labels = checkpoint.get('test_labels', None)
-                bert_test_preds = checkpoint.get('test_preds', None)
-                bert_test_probs = checkpoint.get('test_probs', None)
-                
-                # 如果缺少预测结果，需要重新评估
-                if bert_test_labels is None or bert_test_preds is None or bert_test_probs is None:
-                    print("未找到保存的预测结果，需要重新加载模型进行评估...")
-                    
-                    # 划分训练集、验证集和测试集
-                    train_indices, val_indices = split_train_val(
-                        train_test_indices[0], val_ratio=args.val_ratio, random_state=args.random_state
-                    )
-                    test_indices = train_test_indices[1]
-                    
-                    test_texts = texts[test_indices]
-                    test_labels = labels[test_indices]
-                    
-                    # 这里需要加载模型并重新评估，但为简化代码，我们跳过这一步
-                    # 在实际使用中，需要实现重新加载模型并评估的逻辑
-                    print("警告：未实现重新加载模型评估的功能，直接使用保存的指标")
-            else:
-                # 划分训练集、验证集和测试集
-                train_indices, val_indices = split_train_val(
-                    train_test_indices[0], val_ratio=args.val_ratio, random_state=args.random_state
-                )
-                test_indices = train_test_indices[1]
-                
-                train_texts = texts[train_indices]
-                train_labels = labels[train_indices]
-                val_texts = texts[val_indices]
-                val_labels = labels[val_indices]
-                test_texts = texts[test_indices]
-                test_labels = labels[test_indices]
-                
-                print(f"训练集大小: {len(train_texts)}, 验证集大小: {len(val_texts)}, 测试集大小: {len(test_texts)}")
-                
-                # 为当前fold创建wandb运行
-                if args.use_wandb:
-                    run_name = f"BERT_fold_{fold_idx+1}"
-                    wandb.init(
-                        project=args.wandb_project,
-                        entity=args.wandb_entity,
-                        name=run_name,
-                        group="BERT",
-                        config=vars(args),
-                        reinit=True
-                    )
-                
-                # 训练BERT模型
-                bert_metrics, bert_test_labels, bert_test_preds, bert_test_probs = train_bert_model(
-                    fold_idx, train_texts, train_labels, val_texts, val_labels, 
-                    test_texts, test_labels, num_classes, args
-                )
-                
-                # 记录BERT最终测试指标到wandb
-                if args.use_wandb:
-                    for metric_name, metric_value in bert_metrics.items():
-                        wandb.run.summary[f"BERT_test_{metric_name}"] = metric_value
-                    wandb.finish()  # 结束BERT运行
-            
-            bert_metrics_list.append(bert_metrics)
-            bert_fold_predictions.append((bert_test_labels, bert_test_preds, bert_test_probs))
-            
-            print(f"BERT Fold {fold_idx+1} 完成。")
-    
-    # 再训练所有fold的BiLSTM模型
-    if args.train_bilstm:
-        print("\n========== 开始训练BiLSTM模型 ==========")
-        
-        for fold_idx, (train_test_indices) in enumerate(fold_indices):
-            print(f"\n========== BiLSTM: Fold {fold_idx+1}/{args.n_folds} ==========")
-            
-            # 检查该fold的模型是否已存在
-            bilstm_model_path = os.path.join(args.output_dir, f"bilstm_fold_{fold_idx+1}.pt")
-            if os.path.exists(bilstm_model_path):
-                print(f"加载已存在的BiLSTM模型: {bilstm_model_path}")
-                checkpoint = torch.load(bilstm_model_path)
-                bilstm_metrics = checkpoint['test_metrics']
-                bilstm_test_labels = checkpoint.get('test_labels', None)
-                bilstm_test_preds = checkpoint.get('test_preds', None)
-                bilstm_test_probs = checkpoint.get('test_probs', None)
-                
-                # 如果缺少预测结果，需要重新评估
-                if bilstm_test_labels is None or bilstm_test_preds is None or bilstm_test_probs is None:
-                    print("未找到保存的预测结果，需要重新加载模型进行评估...")
-                    
-                    # 划分训练集、验证集和测试集
-                    train_indices, val_indices = split_train_val(
-                        train_test_indices[0], val_ratio=args.val_ratio, random_state=args.random_state
-                    )
-                    test_indices = train_test_indices[1]
-                    
-                    test_texts = texts[test_indices]
-                    test_labels = labels[test_indices]
-                    
-                    # 这里需要加载模型并重新评估，但为简化代码，我们跳过这一步
-                    # 在实际使用中，需要实现重新加载模型并评估的逻辑
-                    print("警告：未实现重新加载模型评估的功能，直接使用保存的指标")
-            else:
-                # 划分训练集、验证集和测试集
-                train_indices, val_indices = split_train_val(
-                    train_test_indices[0], val_ratio=args.val_ratio, random_state=args.random_state
-                )
-                test_indices = train_test_indices[1]
-                
-                train_texts = texts[train_indices]
-                train_labels = labels[train_indices]
-                val_texts = texts[val_indices]
-                val_labels = labels[val_indices]
-                test_texts = texts[test_indices]
-                test_labels = labels[test_indices]
-                
-                print(f"训练集大小: {len(train_texts)}, 验证集大小: {len(val_texts)}, 测试集大小: {len(test_texts)}")
-                
-                # 为当前fold创建wandb运行
-                if args.use_wandb:
-                    run_name = f"BiLSTM_fold_{fold_idx+1}"
-                    wandb.init(
-                        project=args.wandb_project,
-                        entity=args.wandb_entity,
-                        name=run_name,
-                        group="BiLSTM",
-                        config=vars(args),
-                        reinit=True
-                    )
-                
-                # 训练BiLSTM模型
-                bilstm_metrics, bilstm_test_labels, bilstm_test_preds, bilstm_test_probs = train_bilstm_model(
-                    fold_idx, train_texts, train_labels, val_texts, val_labels, 
-                    test_texts, test_labels, num_classes, args
-                )
-                
-                # 记录BiLSTM最终测试指标到wandb
-                if args.use_wandb:
-                    for metric_name, metric_value in bilstm_metrics.items():
-                        wandb.run.summary[f"BiLSTM_test_{metric_name}"] = metric_value
-                    wandb.finish()  # 结束BiLSTM运行
-            
-            bilstm_metrics_list.append(bilstm_metrics)
-            bilstm_fold_predictions.append((bilstm_test_labels, bilstm_test_preds, bilstm_test_probs))
-            
-            print(f"BiLSTM Fold {fold_idx+1} 完成。")
-    
-    # 输出并保存最终结果
-    print("\n========== 最终性能汇总 ==========")
-    
-    # 创建一个最终的wandb运行来记录平均性能
-    if args.use_wandb and (args.train_bert or args.train_bilstm):
-        wandb.init(
-            project=args.wandb_project,
-            entity=args.wandb_entity,
-            name="Final_Comparison",
-            config=vars(args),
-            reinit=True
+        # 首先分割出测试集
+        train_indices, test_indices = train_test_split(
+            np.arange(len(texts)), test_size=args.val_ratio, 
+            random_state=args.random_state, stratify=labels if len(np.unique(labels)) > 1 else None
         )
-    
-    # 计算并输出BERT平均指标
-    if args.train_bert:
-        print("\nBERT模型:")
-        bert_avg_metrics = plot_metrics(bert_metrics_list, "BERT")
-        for metric_name, metric_value in bert_avg_metrics.items():
-            print(f"平均 {metric_name}: {metric_value:.4f}")
-            if args.use_wandb:
-                wandb.run.summary[f"avg_BERT_{metric_name}"] = metric_value
         
-        # 保存BERT预测结果
-        save_predictions(bert_fold_predictions, "BERT", args.output_dir)
-    
-    # 计算并输出BiLSTM平均指标
-    if args.train_bilstm:
-        print("\nBiLSTM模型:")
-        bilstm_avg_metrics = plot_metrics(bilstm_metrics_list, "BiLSTM")
-        for metric_name, metric_value in bilstm_avg_metrics.items():
-            print(f"平均 {metric_name}: {metric_value:.4f}")
-            if args.use_wandb:
-                wandb.run.summary[f"avg_BiLSTM_{metric_name}"] = metric_value
+        # 然后从训练集中分割出验证集
+        train_texts = texts[train_indices]
+        train_labels = labels[train_indices]
+        test_texts = texts[test_indices]
+        test_labels = labels[test_indices]
         
-        # 保存BiLSTM预测结果
-        save_predictions(bilstm_fold_predictions, "BiLSTM", args.output_dir)
-    
-    # 绘制对比图
-    if args.train_bert and args.train_bilstm:
-        plt.figure(figsize=(10, 6))
-        metrics = list(bert_avg_metrics.keys())
-        bert_values = [bert_avg_metrics[m] for m in metrics]
-        bilstm_values = [bilstm_avg_metrics[m] for m in metrics]
+        train_indices_final, val_indices = train_test_split(
+            np.arange(len(train_texts)), test_size=args.val_ratio,
+            random_state=args.random_state, stratify=train_labels if len(np.unique(train_labels)) > 1 else None
+        )
         
-        x = np.arange(len(metrics))
-        width = 0.35
+        val_texts = train_texts[val_indices]
+        val_labels = train_labels[val_indices]
+        train_texts = train_texts[train_indices_final]
+        train_labels = train_labels[train_indices_final]
         
-        plt.bar(x - width/2, bert_values, width, label='BERT')
-        plt.bar(x + width/2, bilstm_values, width, label='BiLSTM')
+        print(f"训练集大小: {len(train_texts)}, 验证集大小: {len(val_texts)}, 测试集大小: {len(test_texts)}")
         
-        plt.ylabel('分数')
-        plt.title('BERT vs BiLSTM 性能对比')
-        plt.xticks(x, metrics)
-        plt.ylim(0, 1)
-        plt.legend()
-        plt.grid(True, linestyle='--', alpha=0.7)
+        # 获取类别数
+        num_classes = len(np.unique(labels))
+        print(f"数据集中的类别数: {num_classes}")
         
-        plt.tight_layout()
-        plt.savefig(f"{args.output_dir}/model_comparison.png")
+        # 存储每个模型的指标和预测结果
+        bert_metrics = None
+        bilstm_metrics = None
+        bert_predictions = None
+        bilstm_predictions = None
         
-        # 上传图表到wandb
-        if args.use_wandb:
-            wandb.log({"performance_comparison": wandb.Image(f"{args.output_dir}/model_comparison.png")})
+        # 训练BERT模型
+        if args.train_bert:
+            print("\n========== 开始训练BERT模型 ==========")
             
-        print(f"对比图已保存到: {args.output_dir}/model_comparison.png")
+            # 为BERT创建wandb运行
+            if args.use_wandb:
+                run_name = "BERT_single_split"
+                wandb.init(
+                    project=args.wandb_project,
+                    entity=args.wandb_entity,
+                    name=run_name,
+                    group="BERT",
+                    config=vars(args),
+                    reinit=True
+                )
+            
+            # 训练BERT模型
+            bert_metrics, bert_test_labels, bert_test_preds, bert_test_probs = train_bert_model(
+                0, train_texts, train_labels, val_texts, val_labels, 
+                test_texts, test_labels, num_classes, args
+            )
+            
+            # 记录BERT最终测试指标到wandb
+            if args.use_wandb:
+                for metric_name, metric_value in bert_metrics.items():
+                    wandb.run.summary[f"BERT_test_{metric_name}"] = metric_value
+                wandb.finish()  # 结束BERT运行
+            
+            bert_predictions = (bert_test_labels, bert_test_preds, bert_test_probs)
+            
+            # 保存BERT预测结果
+            pred_df = pd.DataFrame({
+                'y_true': bert_test_labels,
+                'y_pred': bert_test_preds,
+            })
+            
+            # 添加每个类别的概率列
+            for i in range(bert_test_probs.shape[1]):
+                pred_df[f'prob_class_{i}'] = bert_test_probs[:, i]
+            
+            pred_df.to_csv(f'{args.output_dir}/BERT_single_split_predictions.csv', index=False)
+            
+            print("BERT模型训练完成。")
+            
+        # 训练BiLSTM模型
+        if args.train_bilstm:
+            print("\n========== 开始训练BiLSTM模型 ==========")
+            
+            # 为BiLSTM创建wandb运行
+            if args.use_wandb:
+                run_name = "BiLSTM_single_split"
+                wandb.init(
+                    project=args.wandb_project,
+                    entity=args.wandb_entity,
+                    name=run_name,
+                    group="BiLSTM",
+                    config=vars(args),
+                    reinit=True
+                )
+            
+            # 训练BiLSTM模型
+            bilstm_metrics, bilstm_test_labels, bilstm_test_preds, bilstm_test_probs = train_bilstm_model(
+                0, train_texts, train_labels, val_texts, val_labels, 
+                test_texts, test_labels, num_classes, args
+            )
+            
+            # 记录BiLSTM最终测试指标到wandb
+            if args.use_wandb:
+                for metric_name, metric_value in bilstm_metrics.items():
+                    wandb.run.summary[f"BiLSTM_test_{metric_name}"] = metric_value
+                wandb.finish()  # 结束BiLSTM运行
+            
+            bilstm_predictions = (bilstm_test_labels, bilstm_test_preds, bilstm_test_probs)
+            
+            # 保存BiLSTM预测结果
+            pred_df = pd.DataFrame({
+                'y_true': bilstm_test_labels,
+                'y_pred': bilstm_test_preds,
+            })
+            
+            # 添加每个类别的概率列
+            for i in range(bilstm_test_probs.shape[1]):
+                pred_df[f'prob_class_{i}'] = bilstm_test_probs[:, i]
+            
+            pred_df.to_csv(f'{args.output_dir}/BiLSTM_single_split_predictions.csv', index=False)
+            
+            print("BiLSTM模型训练完成。")
+        
+        # 输出最终结果
+        print("\n========== 最终性能汇总 ==========")
+        
+        # 创建一个最终的wandb运行来记录平均性能
+        if args.use_wandb and (args.train_bert or args.train_bilstm):
+            wandb.init(
+                project=args.wandb_project,
+                entity=args.wandb_entity,
+                name="Final_Single_Split_Comparison",
+                config=vars(args),
+                reinit=True
+            )
+        
+        # 输出BERT指标
+        if args.train_bert:
+            print("\nBERT模型:")
+            for metric_name, metric_value in bert_metrics.items():
+                print(f"{metric_name}: {metric_value:.4f}")
+                if args.use_wandb:
+                    wandb.run.summary[f"BERT_{metric_name}"] = metric_value
+        
+        # 输出BiLSTM指标
+        if args.train_bilstm:
+            print("\nBiLSTM模型:")
+            for metric_name, metric_value in bilstm_metrics.items():
+                print(f"{metric_name}: {metric_value:.4f}")
+                if args.use_wandb:
+                    wandb.run.summary[f"BiLSTM_{metric_name}"] = metric_value
+        
+        if args.use_wandb:
+            wandb.finish()  # 结束最终比较运行
+        
+        # 绘制对比图（如果同时训练了两种模型）
+        if args.train_bert and args.train_bilstm:
+            plt.figure(figsize=(10, 6))
+            metrics = list(bert_metrics.keys())
+            bert_values = [bert_metrics[m] for m in metrics]
+            bilstm_values = [bilstm_metrics[m] for m in metrics]
+            
+            x = np.arange(len(metrics))
+            width = 0.35
+            
+            plt.bar(x - width/2, bert_values, width, label='BERT')
+            plt.bar(x + width/2, bilstm_values, width, label='BiLSTM')
+            
+            plt.ylabel('分数')
+            plt.title('BERT vs BiLSTM 性能对比 (单一分割)')
+            plt.xticks(x, metrics)
+            plt.ylim(0, 1)
+            plt.legend()
+            plt.grid(True, linestyle='--', alpha=0.7)
+            
+            plt.tight_layout()
+            plt.savefig(f"{args.output_dir}/model_comparison_single_split.png")
+            
+            # 上传图表到wandb
+            if args.use_wandb:
+                wandb.log({"performance_comparison_single_split": wandb.Image(f"{args.output_dir}/model_comparison_single_split.png")})
+            
+            print(f"对比图已保存到: {args.output_dir}/model_comparison_single_split.png")
+        
+        print(f"\n所有结果已保存到目录: {args.output_dir}")
     
-    # 结束wandb
-    if args.use_wandb and (args.train_bert or args.train_bilstm):
-        wandb.finish()
-    
-    print(f"\n所有结果已保存到目录: {args.output_dir}")
+    else:
+        # 原有的k-fold交叉验证逻辑
+        # 准备交叉验证数据集
+        texts, labels, fold_indices = prepare_kfold_data(df, n_splits=args.n_folds, random_state=args.random_state)
+        
+        # 获取类别数
+        num_classes = len(np.unique(labels))
+        print(f"数据集中的类别数: {num_classes}")
+        
+        # 存储每个fold的指标
+        bert_metrics_list = []
+        bilstm_metrics_list = []
+        
+        # 存储预测结果用于最终评估
+        bert_fold_predictions = []
+        bilstm_fold_predictions = []
+        
+        # 先训练所有fold的BERT模型
+        if args.train_bert:
+            print("\n========== 开始训练BERT模型 ==========")
+            
+            for fold_idx, (train_test_indices) in enumerate(fold_indices):
+                print(f"\n========== BERT: Fold {fold_idx+1}/{args.n_folds} ==========")
+                
+                # 检查该fold的模型是否已存在
+                bert_model_path = os.path.join(args.output_dir, f"bert_fold_{fold_idx+1}.pt")
+                if os.path.exists(bert_model_path):
+                    print(f"加载已存在的BERT模型: {bert_model_path}")
+                    checkpoint = torch.load(bert_model_path)
+                    bert_metrics = checkpoint['test_metrics']
+                    bert_test_labels = checkpoint.get('test_labels', None)
+                    bert_test_preds = checkpoint.get('test_preds', None)
+                    bert_test_probs = checkpoint.get('test_probs', None)
+                    
+                    # 如果缺少预测结果，需要重新评估
+                    if bert_test_labels is None or bert_test_preds is None or bert_test_probs is None:
+                        print("未找到保存的预测结果，需要重新加载模型进行评估...")
+                        
+                        # 划分训练集、验证集和测试集
+                        train_indices, val_indices = split_train_val(
+                            train_test_indices[0], val_ratio=args.val_ratio, random_state=args.random_state
+                        )
+                        test_indices = train_test_indices[1]
+                        
+                        test_texts = texts[test_indices]
+                        test_labels = labels[test_indices]
+                        
+                        # 这里需要加载模型并重新评估，但为简化代码，我们跳过这一步
+                        # 在实际使用中，需要实现重新加载模型并评估的逻辑
+                        print("警告：未实现重新加载模型评估的功能，直接使用保存的指标")
+                else:
+                    # 划分训练集、验证集和测试集
+                    train_indices, val_indices = split_train_val(
+                        train_test_indices[0], val_ratio=args.val_ratio, random_state=args.random_state
+                    )
+                    test_indices = train_test_indices[1]
+                    
+                    train_texts = texts[train_indices]
+                    train_labels = labels[train_indices]
+                    val_texts = texts[val_indices]
+                    val_labels = labels[val_indices]
+                    test_texts = texts[test_indices]
+                    test_labels = labels[test_indices]
+                    
+                    print(f"训练集大小: {len(train_texts)}, 验证集大小: {len(val_texts)}, 测试集大小: {len(test_texts)}")
+                    
+                    # 为当前fold创建wandb运行
+                    if args.use_wandb:
+                        run_name = f"BERT_fold_{fold_idx+1}"
+                        wandb.init(
+                            project=args.wandb_project,
+                            entity=args.wandb_entity,
+                            name=run_name,
+                            group="BERT",
+                            config=vars(args),
+                            reinit=True
+                        )
+                    
+                    # 训练BERT模型
+                    bert_metrics, bert_test_labels, bert_test_preds, bert_test_probs = train_bert_model(
+                        fold_idx, train_texts, train_labels, val_texts, val_labels, 
+                        test_texts, test_labels, num_classes, args
+                    )
+                    
+                    # 记录BERT最终测试指标到wandb
+                    if args.use_wandb:
+                        for metric_name, metric_value in bert_metrics.items():
+                            wandb.run.summary[f"BERT_test_{metric_name}"] = metric_value
+                        wandb.finish()  # 结束BERT运行
+                
+                bert_metrics_list.append(bert_metrics)
+                bert_fold_predictions.append((bert_test_labels, bert_test_preds, bert_test_probs))
+                
+                print(f"BERT Fold {fold_idx+1} 完成。")
+        
+        # 再训练所有fold的BiLSTM模型
+        if args.train_bilstm:
+            print("\n========== 开始训练BiLSTM模型 ==========")
+            
+            for fold_idx, (train_test_indices) in enumerate(fold_indices):
+                print(f"\n========== BiLSTM: Fold {fold_idx+1}/{args.n_folds} ==========")
+                
+                # 检查该fold的模型是否已存在
+                bilstm_model_path = os.path.join(args.output_dir, f"bilstm_fold_{fold_idx+1}.pt")
+                if os.path.exists(bilstm_model_path):
+                    print(f"加载已存在的BiLSTM模型: {bilstm_model_path}")
+                    checkpoint = torch.load(bilstm_model_path)
+                    bilstm_metrics = checkpoint['test_metrics']
+                    bilstm_test_labels = checkpoint.get('test_labels', None)
+                    bilstm_test_preds = checkpoint.get('test_preds', None)
+                    bilstm_test_probs = checkpoint.get('test_probs', None)
+                    
+                    # 如果缺少预测结果，需要重新评估
+                    if bilstm_test_labels is None or bilstm_test_preds is None or bilstm_test_probs is None:
+                        print("未找到保存的预测结果，需要重新加载模型进行评估...")
+                        
+                        # 划分训练集、验证集和测试集
+                        train_indices, val_indices = split_train_val(
+                            train_test_indices[0], val_ratio=args.val_ratio, random_state=args.random_state
+                        )
+                        test_indices = train_test_indices[1]
+                        
+                        test_texts = texts[test_indices]
+                        test_labels = labels[test_indices]
+                        
+                        # 这里需要加载模型并重新评估，但为简化代码，我们跳过这一步
+                        # 在实际使用中，需要实现重新加载模型并评估的逻辑
+                        print("警告：未实现重新加载模型评估的功能，直接使用保存的指标")
+                else:
+                    # 划分训练集、验证集和测试集
+                    train_indices, val_indices = split_train_val(
+                        train_test_indices[0], val_ratio=args.val_ratio, random_state=args.random_state
+                    )
+                    test_indices = train_test_indices[1]
+                    
+                    train_texts = texts[train_indices]
+                    train_labels = labels[train_indices]
+                    val_texts = texts[val_indices]
+                    val_labels = labels[val_indices]
+                    test_texts = texts[test_indices]
+                    test_labels = labels[test_indices]
+                    
+                    print(f"训练集大小: {len(train_texts)}, 验证集大小: {len(val_texts)}, 测试集大小: {len(test_texts)}")
+                    
+                    # 为当前fold创建wandb运行
+                    if args.use_wandb:
+                        run_name = f"BiLSTM_fold_{fold_idx+1}"
+                        wandb.init(
+                            project=args.wandb_project,
+                            entity=args.wandb_entity,
+                            name=run_name,
+                            group="BiLSTM",
+                            config=vars(args),
+                            reinit=True
+                        )
+                    
+                    # 训练BiLSTM模型
+                    bilstm_metrics, bilstm_test_labels, bilstm_test_preds, bilstm_test_probs = train_bilstm_model(
+                        fold_idx, train_texts, train_labels, val_texts, val_labels, 
+                        test_texts, test_labels, num_classes, args
+                    )
+                    
+                    # 记录BiLSTM最终测试指标到wandb
+                    if args.use_wandb:
+                        for metric_name, metric_value in bilstm_metrics.items():
+                            wandb.run.summary[f"BiLSTM_test_{metric_name}"] = metric_value
+                        wandb.finish()  # 结束BiLSTM运行
+                
+                bilstm_metrics_list.append(bilstm_metrics)
+                bilstm_fold_predictions.append((bilstm_test_labels, bilstm_test_preds, bilstm_test_probs))
+                
+                print(f"BiLSTM Fold {fold_idx+1} 完成。")
+        
+        # 输出并保存最终结果
+        print("\n========== 最终性能汇总 ==========")
+        
+        # 创建一个最终的wandb运行来记录平均性能
+        if args.use_wandb and (args.train_bert or args.train_bilstm):
+            wandb.init(
+                project=args.wandb_project,
+                entity=args.wandb_entity,
+                name="Final_Comparison",
+                config=vars(args),
+                reinit=True
+            )
+        
+        # 计算并输出BERT平均指标
+        if args.train_bert:
+            print("\nBERT模型:")
+            bert_avg_metrics = plot_metrics(bert_metrics_list, "BERT")
+            for metric_name, metric_value in bert_avg_metrics.items():
+                print(f"平均 {metric_name}: {metric_value:.4f}")
+                if args.use_wandb:
+                    wandb.run.summary[f"avg_BERT_{metric_name}"] = metric_value
+            
+            # 保存BERT预测结果
+            save_predictions(bert_fold_predictions, "BERT", args.output_dir)
+        
+        # 计算并输出BiLSTM平均指标
+        if args.train_bilstm:
+            print("\nBiLSTM模型:")
+            bilstm_avg_metrics = plot_metrics(bilstm_metrics_list, "BiLSTM")
+            for metric_name, metric_value in bilstm_avg_metrics.items():
+                print(f"平均 {metric_name}: {metric_value:.4f}")
+                if args.use_wandb:
+                    wandb.run.summary[f"avg_BiLSTM_{metric_name}"] = metric_value
+            
+            # 保存BiLSTM预测结果
+            save_predictions(bilstm_fold_predictions, "BiLSTM", args.output_dir)
+        
+        # 绘制对比图
+        if args.train_bert and args.train_bilstm:
+            plt.figure(figsize=(10, 6))
+            metrics = list(bert_avg_metrics.keys())
+            bert_values = [bert_avg_metrics[m] for m in metrics]
+            bilstm_values = [bilstm_avg_metrics[m] for m in metrics]
+            
+            x = np.arange(len(metrics))
+            width = 0.35
+            
+            plt.bar(x - width/2, bert_values, width, label='BERT')
+            plt.bar(x + width/2, bilstm_values, width, label='BiLSTM')
+            
+            plt.ylabel('分数')
+            plt.title('BERT vs BiLSTM 性能对比')
+            plt.xticks(x, metrics)
+            plt.ylim(0, 1)
+            plt.legend()
+            plt.grid(True, linestyle='--', alpha=0.7)
+            
+            plt.tight_layout()
+            plt.savefig(f"{args.output_dir}/model_comparison.png")
+            
+            # 上传图表到wandb
+            if args.use_wandb:
+                wandb.log({"performance_comparison": wandb.Image(f"{args.output_dir}/model_comparison.png")})
+            
+            print(f"对比图已保存到: {args.output_dir}/model_comparison.png")
+        
+        # 结束wandb
+        if args.use_wandb and (args.train_bert or args.train_bilstm):
+            wandb.finish()
+        
+        print(f"\n所有结果已保存到目录: {args.output_dir}")
 
 if __name__ == "__main__":
     main() 

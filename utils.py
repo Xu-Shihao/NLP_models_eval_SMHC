@@ -10,6 +10,9 @@ from sklearn.metrics import (
 import matplotlib.pyplot as plt
 import seaborn as sns
 from transformers import BertTokenizer
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
+from tqdm import tqdm
 
 class TextDataset(Dataset):
     def __init__(self, texts, labels, tokenizer, max_length=128):
@@ -42,8 +45,8 @@ class TextDataset(Dataset):
         }
 
 class LongTextDataset(Dataset):
-    """处理长文本的数据集类，支持分段切分和late fusion"""
-    def __init__(self, texts, labels, tokenizer, chunk_length=512, max_chunks=5, is_training=True):
+    """处理长文本的数据集类，支持分段切分和late fusion，使用并行处理和缓存优化性能"""
+    def __init__(self, texts, labels, tokenizer, chunk_length=512, max_chunks=5, is_training=True, num_workers=4, batch_size=32):
         self.texts = texts
         self.labels = labels
         self.tokenizer = tokenizer
@@ -51,66 +54,105 @@ class LongTextDataset(Dataset):
         self.max_chunks = max_chunks  # 每个样本最多使用的chunk数
         self.is_training = is_training
         
-        # 预处理文本，切分为chunks
+        # 预处理文本，切分为chunks (并行处理)
         self.text_chunks = []
         self.chunk_to_sample_idx = []  # 记录每个chunk属于哪个原始样本
+        self.attention_masks = []
         
-        for idx, text in enumerate(texts):
-            # 编码整个文本
-            encoded = self.tokenizer.encode_plus(
-                str(text),
-                add_special_tokens=True,
-                max_length=None,  # 不限制长度
-                padding=False,
-                truncation=False,
-                return_tensors=None
-            )
+        print(f"处理数据集，样本数: {len(texts)}")
+        self._preprocess_texts(num_workers, batch_size)
+        
+    def _process_text_batch(self, batch_indices):
+        """处理一批文本样本"""
+        results = []
+        for idx in batch_indices:
+            text = str(self.texts[idx])
             
-            input_ids = encoded['input_ids']
+            # 使用快速编码方法
+            if hasattr(self.tokenizer, 'encode_plus'):
+                # transformers库的tokenizer
+                encoded = self.tokenizer.encode_plus(
+                    text,
+                    add_special_tokens=True,
+                    max_length=None,
+                    padding=False,
+                    truncation=False,
+                    return_tensors=None
+                )
+                input_ids = encoded['input_ids']
+            else:
+                # 自定义tokenizer (如BiLSTM的tokenizer)
+                encoded = self.tokenizer(text)
+                input_ids = encoded['input_ids']
             
             # 对长文本分段
             chunks = []
             
-            # 如果文本不超过 chunk_length - 2（为CLS和SEP预留位置），则不切分
-            if len(input_ids) <= chunk_length:
-                chunks.append(input_ids)
+            # 如果文本不超过 chunk_length，则不切分
+            if len(input_ids) <= self.chunk_length:
+                chunks.append((input_ids, idx))
             else:
                 # 考虑重叠的方式分段
-                step = chunk_length - 50  # 50个token的重叠
+                step = self.chunk_length - 50  # 50个token的重叠
                 for i in range(0, len(input_ids), step):
-                    chunk = input_ids[i:i + chunk_length]
+                    chunk = input_ids[i:i + self.chunk_length]
                     if len(chunk) < 10:  # 太短的片段忽略
                         continue
-                    chunks.append(chunk)
+                    chunks.append((chunk, idx))
             
-            # 训练和评估阶段都使用多个chunks
             # 限制每个样本的chunks数量
-            for chunk in chunks[:self.max_chunks]:
-                self.text_chunks.append(chunk)
-                self.chunk_to_sample_idx.append(idx)
+            if self.is_training and len(chunks) > 0:
+                # 训练模式下，每个样本随机选择1个chunk
+                selected_chunk = [chunks[np.random.randint(len(chunks))]]
+                results.extend(selected_chunk)
+            else:
+                # 非训练模式下，使用多个chunks
+                results.extend(chunks[:self.max_chunks])
+        
+        return results
+    
+    def _preprocess_texts(self, num_workers, batch_size):
+        """并行预处理所有文本"""
+        # 将样本索引分成多个批次
+        sample_indices = np.arange(len(self.texts))
+        batches = [sample_indices[i:i+batch_size] for i in range(0, len(sample_indices), batch_size)]
+        
+        chunks_list = []
+        # 使用线程池并行处理
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            for chunks_batch in tqdm(executor.map(self._process_text_batch, batches), 
+                                    total=len(batches), desc="预处理文本"):
+                chunks_list.extend(chunks_batch)
+        
+        # 整理结果
+        for chunk, sample_idx in chunks_list:
+            # 预计算并缓存padding和attention_mask
+            if len(chunk) > self.chunk_length:
+                chunk = chunk[:self.chunk_length]
+            
+            padding = [0] * (self.chunk_length - len(chunk))
+            attention_mask = [1] * len(chunk) + [0] * len(padding)
+            padded_chunk = chunk + padding
+            
+            self.text_chunks.append(padded_chunk)
+            self.attention_masks.append(attention_mask)
+            self.chunk_to_sample_idx.append(sample_idx)
+        
+        # 预先转换为张量以加速__getitem__
+        self.text_chunks_tensor = [torch.tensor(chunk, dtype=torch.long) for chunk in self.text_chunks]
+        self.attention_masks_tensor = [torch.tensor(mask, dtype=torch.long) for mask in self.attention_masks]
+        print(f"预处理完成，共切分为 {len(self.text_chunks)} 个文本块")
     
     def __len__(self):
         return len(self.text_chunks)
     
     def __getitem__(self, idx):
-        # 获取单个chunk
-        chunk = self.text_chunks[idx]
-        sample_idx = self.chunk_to_sample_idx[idx]
-        label = self.labels[sample_idx]
-        
-        # 填充到固定长度
-        if len(chunk) > self.chunk_length:
-            chunk = chunk[:self.chunk_length]
-        
-        padding = [0] * (self.chunk_length - len(chunk))
-        attention_mask = [1] * len(chunk) + [0] * len(padding)
-        chunk = chunk + padding
-        
+        # 直接返回预计算的张量
         return {
-            'input_ids': torch.tensor(chunk, dtype=torch.long),
-            'attention_mask': torch.tensor(attention_mask, dtype=torch.long),
-            'label': torch.tensor(label, dtype=torch.long),
-            'sample_idx': sample_idx  # 额外返回原始样本索引，用于late fusion
+            'input_ids': self.text_chunks_tensor[idx],
+            'attention_mask': self.attention_masks_tensor[idx],
+            'label': torch.tensor(self.labels[self.chunk_to_sample_idx[idx]], dtype=torch.long),
+            'sample_idx': self.chunk_to_sample_idx[idx]  # 额外返回原始样本索引，用于late fusion
         }
 
 def load_data(file_path):
