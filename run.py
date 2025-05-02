@@ -61,7 +61,7 @@ def main():
                         help="输出目录")
     parser.add_argument("--n_folds", type=int, default=10,
                         help="交叉验证折数")
-    parser.add_argument("--batch_size", type=int, default=16,
+    parser.add_argument("--batch_size", type=int, default=8,
                         help="批次大小")
     parser.add_argument("--max_seq_length", type=int, default=512,
                         help="每个块的最大序列长度，固定为512")
