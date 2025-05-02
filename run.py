@@ -89,6 +89,12 @@ def main():
     parser.add_argument("--fusion_method", type=str, default='mean', choices=['mean', 'max'],
                         help="late fusion方法，可选'mean'或'max'")
     
+    # 新增参数：模型选择和训练模式
+    parser.add_argument("--train_bert", action="store_true",
+                        help="训练BERT模型")
+    parser.add_argument("--train_bilstm", action="store_true",
+                        help="训练BiLSTM模型")
+    
     # 新增参数：是否仅显示序列长度统计
     parser.add_argument("--only_show_seq_length", action="store_true",
                         help="仅显示序列长度统计，不进行训练")
@@ -134,6 +140,15 @@ def main():
         "--lr_decay_epochs", args.lr_decay_epochs,
     ]
     
+    # 添加模型训练选择参数
+    if args.train_bert:
+        cmd.append("--train_bert")
+    
+    if args.train_bilstm:
+        cmd.append("--train_bilstm")
+    
+    # 如果两者都未指定，默认情况下两个模型都会训练（由train_models.py处理）
+    
     # 如果启用wandb，添加相应参数
     if hasattr(args, "use_wandb") and args.use_wandb:
         cmd.append("--use_wandb")
@@ -148,6 +163,15 @@ def main():
     
     # 执行训练脚本
     print("\n开始训练...")
+    # 显示训练模式
+    if args.train_bert and not args.train_bilstm:
+        print("仅训练BERT模型")
+    elif not args.train_bert and args.train_bilstm:
+        print("仅训练BiLSTM模型")
+    else:
+        print("训练BERT和BiLSTM模型")
+    
+    print(f"输出目录: {args.output_dir}")
     print(f"执行命令: {' '.join(cmd)}")
     
     try:
