@@ -74,8 +74,16 @@ def main():
     
     
     # 新增参数：长文本处理参数
-    parser.add_argument("--learning_rate", type=float, default=1e-5,
-                                   help="每个样本最多使用的chunk数")
+    parser.add_argument("--bert_learning_rate", type=float, default=2e-5,
+                        help="BERT模型学习率")
+    parser.add_argument("--bilstm_learning_rate", type=float, default=1e-3,
+                        help="BiLSTM模型学习率")
+    parser.add_argument("--warmup_ratio", type=float, default=0.1,
+                        help="预热步数比例")
+    parser.add_argument("--lr_decay_factor", type=float, default=0.1,
+                        help="学习率衰减因子")
+    parser.add_argument("--lr_decay_epochs", type=str, default="2,4",
+                        help="学习率衰减轮数，以逗号分隔")
     parser.add_argument("--max_chunks", type=int, default=15,
                         help="每个样本最多使用的chunk数")
     parser.add_argument("--fusion_method", type=str, default='mean', choices=['mean', 'max'],
@@ -119,7 +127,11 @@ def main():
         "--bert_model_name", args.bert_model_name,
         "--max_chunks", str(args.max_chunks),
         "--fusion_method", args.fusion_method,
-        "--learning_rate", str(args.learning_rate),
+        "--bert_learning_rate", str(args.bert_learning_rate),
+        "--bilstm_learning_rate", str(args.bilstm_learning_rate),
+        "--warmup_ratio", str(args.warmup_ratio),
+        "--lr_decay_factor", str(args.lr_decay_factor),
+        "--lr_decay_epochs", args.lr_decay_epochs,
     ]
     
     # 如果启用wandb，添加相应参数

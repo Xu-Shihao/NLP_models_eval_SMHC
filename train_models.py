@@ -146,15 +146,33 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     
     # 定义损失函数和优化器
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    optimizer = optim.AdamW(model.parameters(), lr=args.bert_learning_rate, weight_decay=args.weight_decay)
     
-    # 学习率调度器
+    # 学习率调度器 - 添加warmup和step decay
     total_steps = len(train_loader) * args.epochs
-    scheduler = get_linear_schedule_with_warmup(
-        optimizer, 
-        num_warmup_steps=int(total_steps * 0.1),
-        num_training_steps=total_steps
-    )
+    warmup_steps = int(total_steps * args.warmup_ratio)
+    
+    # 解析lr_decay_epochs字符串为列表
+    decay_epochs = [int(e) for e in args.lr_decay_epochs.split(",")]
+    # 转换成步数
+    decay_steps = [len(train_loader) * epoch for epoch in decay_epochs]
+    
+    # 自定义学习率调度器，结合warmup和step decay
+    def lr_lambda(step):
+        # Warmup阶段
+        if step < warmup_steps:
+            return float(step) / float(max(1, warmup_steps))
+        
+        # Step Decay阶段
+        decay_factor = 1.0
+        for decay_step in decay_steps:
+            if step >= decay_step:
+                decay_factor *= args.lr_decay_factor
+        
+        # 线性衰减
+        return decay_factor * max(0.0, float(total_steps - step) / float(max(1, total_steps - warmup_steps)))
+    
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     
     # 训练模型
     best_val_metrics = None
@@ -409,7 +427,32 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     
     # 定义损失函数和优化器
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    optimizer = optim.Adam(model.parameters(), lr=args.bilstm_learning_rate, weight_decay=args.weight_decay)
+    
+    # 学习率调度器 - 添加warmup和step decay
+    total_steps = len(train_loader) * args.epochs
+    warmup_steps = int(total_steps * args.warmup_ratio)
+    
+    # 解析lr_decay_epochs字符串为列表
+    decay_epochs = [int(e) for e in args.lr_decay_epochs.split(",")]
+    # 转换成步数
+    decay_steps = [len(train_loader) * epoch for epoch in decay_epochs]
+    
+    # 自定义学习率调度器
+    def lr_lambda(step):
+        # Warmup阶段
+        if step < warmup_steps:
+            return float(step) / float(max(1, warmup_steps))
+        
+        # Step Decay阶段
+        decay_factor = 1.0
+        for decay_step in decay_steps:
+            if step >= decay_step:
+                decay_factor *= args.lr_decay_factor
+        
+        return decay_factor
+    
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     
     # 训练模型
     best_val_metrics = None
@@ -422,7 +465,7 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
         print(f"Epoch {epoch+1}/{args.epochs}")
         
         # 训练
-        train_loss = train_epoch(model, train_loader, optimizer, None, device, criterion, epoch, "BiLSTM")
+        train_loss = train_epoch(model, train_loader, optimizer, scheduler, device, criterion, epoch, "BiLSTM")
         
         # 验证（使用late fusion）
         val_metrics, val_labels, val_preds, val_probs, val_indices = evaluate_with_fusion(
@@ -495,8 +538,16 @@ def main():
                         help="批次大小")
     parser.add_argument("--epochs", type=int, default=3,
                         help="训练轮数")
-    parser.add_argument("--learning_rate", type=float, default=2e-5,
-                        help="学习率")
+    parser.add_argument("--bert_learning_rate", type=float, default=2e-5,
+                        help="BERT学习率")
+    parser.add_argument("--bilstm_learning_rate", type=float, default=1e-3,
+                        help="BiLSTM学习率")
+    parser.add_argument("--warmup_ratio", type=float, default=0.1,
+                        help="预热步数比例")
+    parser.add_argument("--lr_decay_factor", type=float, default=0.1,
+                        help="学习率衰减因子")
+    parser.add_argument("--lr_decay_epochs", type=str, default="2,4",
+                        help="学习率衰减轮数，以逗号分隔")
     parser.add_argument("--weight_decay", type=float, default=0.01,
                         help="权重衰减")
     parser.add_argument("--patience", type=int, default=2,
