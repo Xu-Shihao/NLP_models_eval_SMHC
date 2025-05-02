@@ -556,7 +556,7 @@ def main():
                         help="学习率衰减轮数，以逗号分隔")
     parser.add_argument("--weight_decay", type=float, default=0.01,
                         help="权重衰减")
-    parser.add_argument("--patience", type=int, default=2,
+    parser.add_argument("--patience", type=int, default=10,
                         help="早停耐心值")
     parser.add_argument("--dropout", type=float, default=0.1,
                         help="Dropout比例")
