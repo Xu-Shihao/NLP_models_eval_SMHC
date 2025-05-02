@@ -110,6 +110,9 @@ def train_epoch_with_fusion(model, data_loader, optimizer, scheduler, device, cr
     all_sample_indices = []
     all_losses = []
     
+    # 存储每个batch的输入数据、输出和标签，避免重复计算前向传播
+    batch_data = []
+    
     # 第一阶段：前向传播并收集结果
     for batch in tqdm(data_loader, desc="Training - Forward"):
         input_ids = batch["input_ids"].to(device)
@@ -118,8 +121,9 @@ def train_epoch_with_fusion(model, data_loader, optimizer, scheduler, device, cr
         sample_indices = batch["sample_idx"].cpu().numpy()
         
         # 前向传播
-        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-        loss = criterion(outputs, labels)
+        with torch.set_grad_enabled(True):  # 需要保留梯度信息用于反向传播
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            loss = criterion(outputs, labels)
         
         # 收集结果
         probs = torch.softmax(outputs, dim=1)
@@ -128,6 +132,13 @@ def train_epoch_with_fusion(model, data_loader, optimizer, scheduler, device, cr
         all_probs.extend(probs.detach().cpu().numpy())
         all_sample_indices.extend(sample_indices)
         all_losses.append(loss.item())
+        
+        # 保存该batch的数据，输出和标签，用于后续反向传播
+        batch_data.append({
+            'outputs': outputs,
+            'labels': labels,
+            'sample_indices': sample_indices
+        })
     
     # 将所有结果转换为numpy数组
     all_probs = np.array(all_probs)
@@ -140,24 +151,14 @@ def train_epoch_with_fusion(model, data_loader, optimizer, scheduler, device, cr
     # 获取合并后样本的真实标签
     fused_labels = np.array([all_labels[all_sample_indices == idx][0] for idx in unique_indices])
     
-    # 第二阶段：根据融合后的结果，计算加权损失，进行反向传播
+    # 第二阶段：根据融合后的结果，计算损失，进行反向传播
     optimizer.zero_grad()
     
-    # 创建一个字典，将原始样本索引映射到融合后的预测
-    fused_probs_dict = {idx: prob for idx, prob in zip(unique_indices, fused_probs)}
-    
-    # 为每个batch和每个chunk计算权重
-    weights = np.ones(len(all_sample_indices))
-    
-    # 第二次遍历数据加载器，这次进行带权重的反向传播
-    for batch_idx, batch in enumerate(tqdm(data_loader, desc="Training - Backward")):
-        input_ids = batch["input_ids"].to(device)
-        attention_mask = batch["attention_mask"].to(device)
-        labels = batch["label"].to(device)
-        sample_indices = batch["sample_idx"].cpu().numpy()
-        
-        # 前向传播
-        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+    # 为每个batch进行反向传播（使用之前保存的前向传播结果）
+    for batch_idx, batch_item in enumerate(tqdm(batch_data, desc="Training - Backward")):
+        outputs = batch_item['outputs']
+        labels = batch_item['labels']
+        sample_indices = batch_item['sample_indices']
         
         # 计算损失（分别计算每个样本的损失）
         batch_size = labels.size(0)
