@@ -80,10 +80,12 @@ def main():
                         help="BiLSTM模型学习率")
     parser.add_argument("--warmup_ratio", type=float, default=0.1,
                         help="预热步数比例")
-    parser.add_argument("--lr_decay_factor", type=float, default=0.1,
-                        help="学习率衰减因子")
-    parser.add_argument("--lr_decay_epochs", type=str, default="2,4",
+    parser.add_argument("--lr_decay_factor", type=float, default=0.85,
+                        help="学习率衰减因子，值越大衰减越缓慢")
+    parser.add_argument("--lr_decay_epochs", type=str, default="2,4,6,8,10,12,14,16",
                         help="学习率衰减轮数，以逗号分隔")
+    parser.add_argument("--lr_scheduler", type=str, default="linear", choices=['step', 'linear', 'cosine'],
+                        help="学习率调度器类型：step(阶梯式衰减)、linear(线性衰减)、cosine(余弦退火)")
     parser.add_argument("--max_chunks", type=int, default=15,
                         help="每个样本最多使用的chunk数")
     parser.add_argument("--fusion_method", type=str, default='mean', choices=['mean', 'max'],
@@ -142,6 +144,7 @@ def main():
         "--warmup_ratio", str(args.warmup_ratio),
         "--lr_decay_factor", str(args.lr_decay_factor),
         "--lr_decay_epochs", args.lr_decay_epochs,
+        "--lr_scheduler", args.lr_scheduler,
         "--gpu_device", args.gpu_device,
     ]
     

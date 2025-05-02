@@ -13,6 +13,7 @@ import jieba
 from collections import Counter
 import matplotlib.pyplot as plt
 import wandb
+import math
 
 from models import BertClassifier, BiLSTMClassifier
 from utils import (
@@ -154,7 +155,7 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=args.bert_learning_rate, weight_decay=args.weight_decay)
     
-    # 学习率调度器 - 添加warmup和step decay
+    # 学习率调度器 - 添加warmup和不同类型的衰减策略
     total_steps = len(train_loader) * args.epochs
     warmup_steps = int(total_steps * args.warmup_ratio)
     
@@ -163,22 +164,50 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     # 转换成步数
     decay_steps = [len(train_loader) * epoch for epoch in decay_epochs]
     
-    # 自定义学习率调度器，结合warmup和step decay
-    def lr_lambda(step):
-        # Warmup阶段
-        if step < warmup_steps:
-            return float(step) / float(max(1, warmup_steps))
-        
-        # Step Decay阶段
-        decay_factor = 1.0
-        for decay_step in decay_steps:
-            if step >= decay_step:
-                decay_factor *= args.lr_decay_factor
-        
+    # 根据选择的学习率调度器类型创建相应的调度器
+    if args.lr_scheduler == "step":
+        # 阶梯式衰减
+        def lr_lambda(step):
+            # Warmup阶段
+            if step < warmup_steps:
+                return float(step) / float(max(1, warmup_steps))
+            
+            # Step Decay阶段
+            decay_factor = 1.0
+            for decay_step in decay_steps:
+                if step >= decay_step:
+                    decay_factor *= args.lr_decay_factor
+            
+            return decay_factor
+    elif args.lr_scheduler == "linear":
         # 线性衰减
-        return decay_factor * max(0.0, float(total_steps - step) / float(max(1, total_steps - warmup_steps)))
+        def lr_lambda(step):
+            # Warmup阶段
+            if step < warmup_steps:
+                return float(step) / float(max(1, warmup_steps))
+            
+            # 线性衰减阶段
+            return max(0.0, float(total_steps - step) / float(max(1, total_steps - warmup_steps)))
+    elif args.lr_scheduler == "cosine":
+        # 余弦退火
+        def lr_lambda(step):
+            # Warmup阶段
+            if step < warmup_steps:
+                return float(step) / float(max(1, warmup_steps))
+            
+            # 余弦退火阶段
+            progress = float(step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+            return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
     
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    
+    # 打印学习率调度器信息
+    print(f"使用学习率调度器: {args.lr_scheduler}")
+    print(f"初始学习率: {args.bert_learning_rate}")
+    print(f"预热步数比例: {args.warmup_ratio} (总共 {warmup_steps} 步)")
+    if args.lr_scheduler == "step":
+        print(f"学习率衰减因子: {args.lr_decay_factor}")
+        print(f"学习率衰减轮数: {args.lr_decay_epochs}")
     
     # 训练模型
     best_val_metrics = None
@@ -444,7 +473,7 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.bilstm_learning_rate, weight_decay=args.weight_decay)
     
-    # 学习率调度器 - 添加warmup和step decay
+    # 学习率调度器 - 添加warmup和不同类型的衰减策略
     total_steps = len(train_loader) * args.epochs
     warmup_steps = int(total_steps * args.warmup_ratio)
     
@@ -453,21 +482,50 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     # 转换成步数
     decay_steps = [len(train_loader) * epoch for epoch in decay_epochs]
     
-    # 自定义学习率调度器
-    def lr_lambda(step):
-        # Warmup阶段
-        if step < warmup_steps:
-            return float(step) / float(max(1, warmup_steps))
-        
-        # Step Decay阶段
-        decay_factor = 1.0
-        for decay_step in decay_steps:
-            if step >= decay_step:
-                decay_factor *= args.lr_decay_factor
-        
-        return decay_factor
+    # 根据选择的学习率调度器类型创建相应的调度器
+    if args.lr_scheduler == "step":
+        # 阶梯式衰减
+        def lr_lambda(step):
+            # Warmup阶段
+            if step < warmup_steps:
+                return float(step) / float(max(1, warmup_steps))
+            
+            # Step Decay阶段
+            decay_factor = 1.0
+            for decay_step in decay_steps:
+                if step >= decay_step:
+                    decay_factor *= args.lr_decay_factor
+            
+            return decay_factor
+    elif args.lr_scheduler == "linear":
+        # 线性衰减
+        def lr_lambda(step):
+            # Warmup阶段
+            if step < warmup_steps:
+                return float(step) / float(max(1, warmup_steps))
+            
+            # 线性衰减阶段
+            return max(0.0, float(total_steps - step) / float(max(1, total_steps - warmup_steps)))
+    elif args.lr_scheduler == "cosine":
+        # 余弦退火
+        def lr_lambda(step):
+            # Warmup阶段
+            if step < warmup_steps:
+                return float(step) / float(max(1, warmup_steps))
+            
+            # 余弦退火阶段
+            progress = float(step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+            return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
     
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    
+    # 打印学习率调度器信息
+    print(f"使用学习率调度器: {args.lr_scheduler}")
+    print(f"初始学习率: {args.bilstm_learning_rate}")
+    print(f"预热步数比例: {args.warmup_ratio} (总共 {warmup_steps} 步)")
+    if args.lr_scheduler == "step":
+        print(f"学习率衰减因子: {args.lr_decay_factor}")
+        print(f"学习率衰减轮数: {args.lr_decay_epochs}")
     
     # 训练模型
     best_val_metrics = None
@@ -614,6 +672,10 @@ def main():
     # 新增参数: GPU设备选择
     parser.add_argument("--gpu_device", type=str, default="0",
                         help="指定使用的GPU设备ID，例如'0'、'1'或'0,1'用于多GPU")
+    
+    # 新增学习率调度器类型参数
+    parser.add_argument("--lr_scheduler", type=str, default="linear", choices=['step', 'linear', 'cosine'],
+                        help="学习率调度器类型：step(阶梯式衰减)、linear(线性衰减)、cosine(余弦退火)")
     
     args = parser.parse_args()
     
