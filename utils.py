@@ -83,17 +83,11 @@ class LongTextDataset(Dataset):
                         continue
                     chunks.append(chunk)
             
-            # 训练时只随机采样一个chunk，测试时使用所有chunks（最多max_chunks个）
-            if self.is_training:
-                if len(chunks) > 0:
-                    selected_chunk = chunks[np.random.randint(0, len(chunks))]
-                    self.text_chunks.append(selected_chunk)
-                    self.chunk_to_sample_idx.append(idx)
-            else:
-                # 测试时保留所有分段（但限制数量）
-                for chunk in chunks[:self.max_chunks]:
-                    self.text_chunks.append(chunk)
-                    self.chunk_to_sample_idx.append(idx)
+            # 训练和评估阶段都使用多个chunks
+            # 限制每个样本的chunks数量
+            for chunk in chunks[:self.max_chunks]:
+                self.text_chunks.append(chunk)
+                self.chunk_to_sample_idx.append(idx)
     
     def __len__(self):
         return len(self.text_chunks)

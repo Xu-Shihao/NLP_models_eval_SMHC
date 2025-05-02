@@ -98,6 +98,109 @@ def evaluate(model, data_loader, device, criterion):
     
     return metrics, all_labels, all_preds, all_probs
 
+def train_epoch_with_fusion(model, data_loader, optimizer, scheduler, device, criterion, fusion_method='mean', epoch=None, fold=None, model_type=None):
+    """训练一个epoch，支持对多个chunks进行融合"""
+    model.train()
+    total_loss = 0
+    
+    # 收集每个batch的预测和样本索引
+    all_labels = []
+    all_probs = []
+    all_sample_indices = []
+    all_losses = []
+    
+    # 第一阶段：前向传播并收集结果
+    for batch in tqdm(data_loader, desc="Training - Forward"):
+        input_ids = batch["input_ids"].to(device)
+        attention_mask = batch["attention_mask"].to(device)
+        labels = batch["label"].to(device)
+        sample_indices = batch["sample_idx"].cpu().numpy()
+        
+        # 前向传播
+        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+        loss = criterion(outputs, labels)
+        
+        # 收集结果
+        probs = torch.softmax(outputs, dim=1)
+        
+        all_labels.extend(labels.cpu().numpy())
+        all_probs.extend(probs.detach().cpu().numpy())
+        all_sample_indices.extend(sample_indices)
+        all_losses.append(loss.item())
+    
+    # 将所有结果转换为numpy数组
+    all_probs = np.array(all_probs)
+    all_labels = np.array(all_labels)
+    all_sample_indices = np.array(all_sample_indices)
+    
+    # 使用late fusion合并同一样本的多个chunks的结果
+    unique_indices, fused_probs = late_fusion(all_sample_indices, all_probs, fusion_method)
+    
+    # 获取合并后样本的真实标签
+    fused_labels = np.array([all_labels[all_sample_indices == idx][0] for idx in unique_indices])
+    
+    # 第二阶段：根据融合后的结果，计算加权损失，进行反向传播
+    optimizer.zero_grad()
+    
+    # 创建一个字典，将原始样本索引映射到融合后的预测
+    fused_probs_dict = {idx: prob for idx, prob in zip(unique_indices, fused_probs)}
+    
+    # 为每个batch和每个chunk计算权重
+    weights = np.ones(len(all_sample_indices))
+    
+    # 第二次遍历数据加载器，这次进行带权重的反向传播
+    for batch_idx, batch in enumerate(tqdm(data_loader, desc="Training - Backward")):
+        input_ids = batch["input_ids"].to(device)
+        attention_mask = batch["attention_mask"].to(device)
+        labels = batch["label"].to(device)
+        sample_indices = batch["sample_idx"].cpu().numpy()
+        
+        # 前向传播
+        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+        
+        # 计算损失（分别计算每个样本的损失）
+        batch_size = labels.size(0)
+        losses = []
+        
+        for i in range(batch_size):
+            sample_idx = sample_indices[i]
+            output = outputs[i].unsqueeze(0)
+            label = labels[i].unsqueeze(0)
+            
+            # 单个样本的损失
+            loss = criterion(output, label)
+            losses.append(loss)
+        
+        # 将损失组合成一个batch损失
+        batch_loss = torch.mean(torch.stack(losses))
+        
+        # 反向传播
+        batch_loss.backward()
+    
+    # 梯度裁剪，防止梯度爆炸
+    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+    
+    # 优化器步骤
+    optimizer.step()
+    if scheduler:
+        scheduler.step()
+    
+    # 计算平均损失
+    avg_loss = np.mean(all_losses)
+    
+    # 记录到wandb
+    if epoch is not None and model_type is not None and fold is not None:
+        # 获取当前学习率
+        current_lr = optimizer.param_groups[0]['lr']
+        wandb.log({
+            f"{model_type}_train_loss": avg_loss, 
+            f"{model_type}_lr": current_lr,
+            "epoch": epoch,
+            "fold": fold
+        })
+    
+    return avg_loss
+
 def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels, 
                     test_texts, test_labels, num_classes, args):
     """训练BERT模型"""
@@ -123,7 +226,7 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
         train_texts, train_labels, tokenizer, 
         chunk_length=chunk_length, 
         max_chunks=args.max_chunks, 
-        is_training=True
+        is_training=True  # 现在训练和评估都使用多个chunks
     )
     val_dataset = LongTextDataset(
         val_texts, val_labels, tokenizer, 
@@ -219,8 +322,11 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     for epoch in range(args.epochs):
         print(f"Epoch {epoch+1}/{args.epochs}")
         
-        # 训练
-        train_loss = train_epoch(model, train_loader, optimizer, scheduler, device, criterion, epoch, "BERT")
+        # 使用新的train_epoch_with_fusion进行训练
+        train_loss = train_epoch_with_fusion(
+            model, train_loader, optimizer, scheduler, device, criterion, 
+            fusion_method=args.fusion_method, epoch=epoch, fold=fold_idx, model_type="BERT"
+        )
         
         # 验证（使用late fusion）
         val_metrics, val_labels, val_preds, val_probs, val_indices = evaluate_with_fusion(
@@ -438,7 +544,7 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
         train_texts, train_labels, tokenizer, 
         chunk_length=chunk_length, 
         max_chunks=args.max_chunks, 
-        is_training=True
+        is_training=True  # 现在训练和评估都使用多个chunks
     )
     val_dataset = LongTextDataset(
         val_texts, val_labels, tokenizer, 
@@ -537,8 +643,11 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     for epoch in range(args.epochs):
         print(f"Epoch {epoch+1}/{args.epochs}")
         
-        # 训练
-        train_loss = train_epoch(model, train_loader, optimizer, scheduler, device, criterion, epoch, "BiLSTM")
+        # 使用新的train_epoch_with_fusion进行训练
+        train_loss = train_epoch_with_fusion(
+            model, train_loader, optimizer, scheduler, device, criterion, 
+            fusion_method=args.fusion_method, epoch=epoch, fold=fold_idx, model_type="BiLSTM"
+        )
         
         # 验证（使用late fusion）
         val_metrics, val_labels, val_preds, val_probs, val_indices = evaluate_with_fusion(
