@@ -74,9 +74,9 @@ def main():
     
     
     # 新增参数：长文本处理参数
-    parser.add_argument("--bert_learning_rate", type=float, default=2e-6,
+    parser.add_argument("--bert_learning_rate", type=float, default=2e-5,
                         help="BERT模型学习率")
-    parser.add_argument("--bilstm_learning_rate", type=float, default=1e-4,
+    parser.add_argument("--bilstm_learning_rate", type=float, default=1e-3,
                         help="BiLSTM模型学习率")
     parser.add_argument("--warmup_ratio", type=float, default=0.05,
                         help="预热步数比例")

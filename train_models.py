@@ -260,7 +260,7 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     
     # 学习率调度器 - 添加warmup和不同类型的衰减策略
     total_steps = len(train_loader) * args.epochs
-    warmup_steps = int(total_steps * args.warmup_ratio)
+    warmup_steps = int(args.epochs * args.warmup_ratio) * len(train_loader)
     
     # 解析lr_decay_epochs字符串为列表
     decay_epochs = [int(e) for e in args.lr_decay_epochs.split(",")]
@@ -307,7 +307,7 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     # 打印学习率调度器信息
     print(f"使用学习率调度器: {args.lr_scheduler}")
     print(f"初始学习率: {args.bert_learning_rate}")
-    print(f"预热步数比例: {args.warmup_ratio} (总共 {warmup_steps} 步)")
+    print(f"预热epoch比例: {args.warmup_ratio} (总共 {int(args.epochs * args.warmup_ratio)} 个epoch, {warmup_steps} 步)")
     if args.lr_scheduler == "step":
         print(f"学习率衰减因子: {args.lr_decay_factor}")
         print(f"学习率衰减轮数: {args.lr_decay_epochs}")
@@ -581,7 +581,7 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     
     # 学习率调度器 - 添加warmup和不同类型的衰减策略
     total_steps = len(train_loader) * args.epochs
-    warmup_steps = int(total_steps * args.warmup_ratio)
+    warmup_steps = int(args.epochs * args.warmup_ratio) * len(train_loader)
     
     # 解析lr_decay_epochs字符串为列表
     decay_epochs = [int(e) for e in args.lr_decay_epochs.split(",")]
@@ -628,7 +628,7 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     # 打印学习率调度器信息
     print(f"使用学习率调度器: {args.lr_scheduler}")
     print(f"初始学习率: {args.bilstm_learning_rate}")
-    print(f"预热步数比例: {args.warmup_ratio} (总共 {warmup_steps} 步)")
+    print(f"预热epoch比例: {args.warmup_ratio} (总共 {int(args.epochs * args.warmup_ratio)} 个epoch, {warmup_steps} 步)")
     if args.lr_scheduler == "step":
         print(f"学习率衰减因子: {args.lr_decay_factor}")
         print(f"学习率衰减轮数: {args.lr_decay_epochs}")
@@ -728,7 +728,7 @@ def main():
     parser.add_argument("--bilstm_learning_rate", type=float, default=1e-3,
                         help="BiLSTM学习率")
     parser.add_argument("--warmup_ratio", type=float, default=0.1,
-                        help="预热步数比例")
+                        help="预热epoch比例")
     parser.add_argument("--lr_decay_factor", type=float, default=0.1,
                         help="学习率衰减因子")
     parser.add_argument("--lr_decay_epochs", type=str, default="2,4",
