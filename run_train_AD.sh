@@ -33,4 +33,5 @@ python train_models.py \
   --gpu_device 0 \
   --use_wandb \
   --wandb_project "AD_BERT_BiLSTM" \
-  --wandb_entity "" 
+  --wandb_entity "" \
+  --use_single_split
