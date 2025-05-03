@@ -10,22 +10,22 @@ python train_models.py \
   --n_folds 10 \
   --batch_size 10 \
   --epochs 100 \
-  --bert_learning_rate 2e-6 \
+  --bert_learning_rate 1e-7 \
   --bilstm_learning_rate 1e-4 \
   --warmup_ratio 0.05 \
   --lr_decay_factor 0.9 \
   --lr_decay_epochs "2,4,6,8,10,12,14,16" \
   --weight_decay 0.01 \
-  --patience 10 \
+  --patience 5 \
   --dropout 0.1 \
   --seed 42 \
   --max_seq_length 512 \
   --bert_model_name "hfl/chinese-roberta-wwm-ext-large" \
-  --embedding_dim 300 \
+  --embedding_dim 512 \
   --hidden_dim 256 \
   --num_layers 2 \
   --min_freq 2 \
-  --max_chunks 15 \
+  --max_chunks 5 \
   --fusion_method mean \
   --train_bert \
   --train_bilstm \
