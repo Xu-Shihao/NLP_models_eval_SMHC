@@ -86,9 +86,11 @@ class LongTextDataset(Dataset):
             # 训练时随机采样max_chunks个chunk，测试时使用所有chunks（最多max_chunks个）
             if self.is_training:
                 if len(chunks) > 0:
-                    selected_chunks = np.random.choice(chunks, min(len(chunks), self.max_chunks), replace=False)
-                    for selected_chunk in selected_chunks:
-                        self.text_chunks.append(selected_chunk)
+                    # 随机选择min(max_chunks, len(chunks))个chunk
+                    num_selected = min(self.max_chunks, len(chunks))
+                    selected_indices = np.random.choice(len(chunks), num_selected, replace=False)
+                    for selected_idx in selected_indices:
+                        self.text_chunks.append(chunks[selected_idx])
                         self.chunk_to_sample_idx.append(idx)
             else:
                 # 测试时保留所有分段（但限制数量）
