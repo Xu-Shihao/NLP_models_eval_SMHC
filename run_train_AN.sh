@@ -30,7 +30,7 @@ python train_models.py \
   --train_bert \
   --train_bilstm \
   --lr_scheduler linear \
-  --gpu_device 0 \
+  --gpu_device 1 \
   --use_wandb \
   --wandb_project "AN_BERT_BiLSTM" \
   --wandb_entity "" \
