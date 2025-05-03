@@ -9,14 +9,14 @@ python train_models.py \
   --val_ratio 0.2 \
   --n_folds 10 \
   --batch_size 32 \
-  --epochs 100 \
+  --epochs 200 \
   --bert_learning_rate 1e-3 \
   --bilstm_learning_rate 1e-4 \
   --warmup_ratio 0.05 \
   --lr_decay_factor 0.8 \
   --lr_decay_epochs "2,4,6,8,10,12,14,16" \
   --weight_decay 0.01 \
-  --patience 3 \
+  --patience 100 \
   --dropout 0.1 \
   --seed 42 \
   --max_seq_length 512 \
