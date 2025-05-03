@@ -17,7 +17,7 @@ import math
 
 from models import BertClassifier, BiLSTMClassifier
 from utils import (
-    TextDataset, LongTextDataset, load_data, prepare_kfold_data, split_train_val,
+    TextDataset, LongTextDataset, load_data, prepare_kfold_data, prepare_single_split_data, split_train_val,
     calculate_metrics, plot_metrics, save_predictions, late_fusion
 )
 
@@ -261,7 +261,8 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
     
-    model_path = os.path.join(args.output_dir, f"bert_fold_{fold_idx+1}.pt")
+    model_path = os.path.join(args.output_dir, 
+                            "bert_single_split.pt" if args.use_single_split else f"bert_fold_{fold_idx+1}.pt")
     torch.save({
         'model_state_dict': best_model_state,
         'val_metrics': best_val_metrics,
@@ -579,7 +580,8 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
     
-    model_path = os.path.join(args.output_dir, f"bilstm_fold_{fold_idx+1}.pt")
+    model_path = os.path.join(args.output_dir, 
+                            "bilstm_single_split.pt" if args.use_single_split else f"bilstm_fold_{fold_idx+1}.pt")
     torch.save({
         'model_state_dict': best_model_state,
         'vocab': vocab,
@@ -677,6 +679,10 @@ def main():
     parser.add_argument("--lr_scheduler", type=str, default="linear", choices=['step', 'linear', 'cosine'],
                         help="学习率调度器类型：step(阶梯式衰减)、linear(线性衰减)、cosine(余弦退火)")
     
+    # 新增参数：使用单次训练/测试分割而非k-fold交叉验证
+    parser.add_argument("--use_single_split", action="store_true",
+                        help="使用单次80/20分割进行训练和测试，不使用k-fold交叉验证")
+    
     args = parser.parse_args()
     
     # 如果都没指定，默认两个模型都训练
@@ -696,8 +702,14 @@ def main():
     print("正在加载数据...")
     df = load_data(args.data_file)
     
-    # 准备交叉验证数据集
-    texts, labels, fold_indices = prepare_kfold_data(df, n_splits=args.n_folds, random_state=args.random_state)
+    # 根据参数选择数据集准备方式
+    if args.use_single_split:
+        print("使用单次训练/测试分割（80/20）...")
+        texts, labels, fold_indices = prepare_single_split_data(df, test_size=0.2, random_state=args.random_state)
+        print(f"数据集大小: {len(texts)}, 训练集大小: {len(fold_indices[0][0])}, 测试集大小: {len(fold_indices[0][1])}")
+    else:
+        print(f"使用{args.n_folds}折交叉验证...")
+        texts, labels, fold_indices = prepare_kfold_data(df, n_splits=args.n_folds, random_state=args.random_state)
     
     # 获取类别数
     num_classes = len(np.unique(labels))
@@ -719,7 +731,8 @@ def main():
             print(f"\n========== BERT: Fold {fold_idx+1}/{args.n_folds} ==========")
             
             # 检查该fold的模型是否已存在
-            bert_model_path = os.path.join(args.output_dir, f"bert_fold_{fold_idx+1}.pt")
+            bert_model_path = os.path.join(args.output_dir, 
+                                        "bert_single_split.pt" if args.use_single_split else f"bert_fold_{fold_idx+1}.pt")
             if os.path.exists(bert_model_path):
                 print(f"加载已存在的BERT模型: {bert_model_path}")
                 checkpoint = torch.load(bert_model_path)
@@ -762,7 +775,7 @@ def main():
                 
                 # 为当前fold创建wandb运行
                 if args.use_wandb:
-                    run_name = f"BERT_fold_{fold_idx+1}"
+                    run_name = "BERT_single_split" if args.use_single_split else f"BERT_fold_{fold_idx+1}"
                     wandb.init(
                         project=args.wandb_project,
                         entity=args.wandb_entity,
@@ -787,7 +800,11 @@ def main():
             bert_metrics_list.append(bert_metrics)
             bert_fold_predictions.append((bert_test_labels, bert_test_preds, bert_test_probs))
             
-            print(f"BERT Fold {fold_idx+1} 完成。")
+            print(f"BERT {'单次分割' if args.use_single_split else f'Fold {fold_idx+1}'} 完成。")
+            
+            # 如果是单次分割模式，只运行一次循环
+            if args.use_single_split:
+                break
     
     # 再训练所有fold的BiLSTM模型
     if args.train_bilstm:
@@ -797,7 +814,8 @@ def main():
             print(f"\n========== BiLSTM: Fold {fold_idx+1}/{args.n_folds} ==========")
             
             # 检查该fold的模型是否已存在
-            bilstm_model_path = os.path.join(args.output_dir, f"bilstm_fold_{fold_idx+1}.pt")
+            bilstm_model_path = os.path.join(args.output_dir, 
+                                           "bilstm_single_split.pt" if args.use_single_split else f"bilstm_fold_{fold_idx+1}.pt")
             if os.path.exists(bilstm_model_path):
                 print(f"加载已存在的BiLSTM模型: {bilstm_model_path}")
                 checkpoint = torch.load(bilstm_model_path)
@@ -840,7 +858,7 @@ def main():
                 
                 # 为当前fold创建wandb运行
                 if args.use_wandb:
-                    run_name = f"BiLSTM_fold_{fold_idx+1}"
+                    run_name = "BiLSTM_single_split" if args.use_single_split else f"BiLSTM_fold_{fold_idx+1}"
                     wandb.init(
                         project=args.wandb_project,
                         entity=args.wandb_entity,
@@ -865,7 +883,11 @@ def main():
             bilstm_metrics_list.append(bilstm_metrics)
             bilstm_fold_predictions.append((bilstm_test_labels, bilstm_test_preds, bilstm_test_probs))
             
-            print(f"BiLSTM Fold {fold_idx+1} 完成。")
+            print(f"BiLSTM {'单次分割' if args.use_single_split else f'Fold {fold_idx+1}'} 完成。")
+            
+            # 如果是单次分割模式，只运行一次循环
+            if args.use_single_split:
+                break
     
     # 输出并保存最终结果
     print("\n========== 最终性能汇总 ==========")

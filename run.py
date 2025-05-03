@@ -68,6 +68,10 @@ def main():
     parser.add_argument("--epochs", type=int, default=100,
                         help="训练轮数")
     
+    # 新增参数：使用单次训练/测试分割而非k-fold交叉验证
+    parser.add_argument("--use_single_split", action="store_true",
+                        help="使用单次80/20分割进行训练和测试，不使用k-fold交叉验证")
+    
     # BERT特定参数
     parser.add_argument("--bert_model_name", type=str, default="hfl/chinese-roberta-wwm-ext-large",
                         help="BERT预训练模型名称")
@@ -147,6 +151,10 @@ def main():
         "--lr_scheduler", args.lr_scheduler,
         "--gpu_device", args.gpu_device,
     ]
+    
+    # 添加单次分割参数
+    if args.use_single_split:
+        cmd.append("--use_single_split")
     
     # 添加模型训练选择参数
     if args.train_bert:

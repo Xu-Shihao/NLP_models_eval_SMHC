@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, train_test_split
 from sklearn.metrics import (
     f1_score, precision_recall_curve, auc, 
     roc_auc_score, accuracy_score, balanced_accuracy_score
@@ -134,6 +134,24 @@ def prepare_kfold_data(df, n_splits=10, random_state=42):
     
     for train_idx, test_idx in kf.split(texts):
         fold_indices.append((train_idx, test_idx))
+    
+    return texts, labels, fold_indices
+
+def prepare_single_split_data(df, test_size=0.2, random_state=42):
+    """准备单次80/20训练测试分割的数据集"""
+    texts = df['cleaned_text'].values if 'cleaned_text' in df.columns else df['text'].values
+    labels = df['label'].values
+    
+    # 使用sklearn的train_test_split进行简单分割
+    train_idx, test_idx = train_test_split(
+        np.arange(len(texts)), 
+        test_size=test_size, 
+        random_state=random_state,
+        stratify=labels  # 保持标签比例
+    )
+    
+    # 创建一个只有一个分割的fold_indices
+    fold_indices = [(train_idx, test_idx)]
     
     return texts, labels, fold_indices
 
