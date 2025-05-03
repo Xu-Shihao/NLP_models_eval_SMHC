@@ -249,12 +249,12 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
             print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_metrics['loss']:.4f}, "
                   f"Val F1: {val_metrics['f1']:.4f}, Val ROC AUC: {val_metrics['roc_auc']:.4f}")
             
-            # 保存最佳模型
-            if best_val_metrics is None or val_metrics['f1'] > best_val_metrics['f1']:
+            # 保存最佳模型 - 使用validation loss而不是F1
+            if best_val_metrics is None or val_metrics['loss'] < best_val_metrics['loss']:
                 best_val_metrics = val_metrics
                 best_model_state = model.state_dict().copy()
                 patience_counter = 0
-                print(f"Epoch {epoch+1}: 新的最佳模型已保存，F1={val_metrics['f1']:.4f}")
+                print(f"Epoch {epoch+1}: 新的最佳模型已保存，Val Loss={val_metrics['loss']:.4f}")
             else:
                 patience_counter += 1
                 print(f"没有改进，耐心计数器: {patience_counter}/{args.patience}")
@@ -592,12 +592,12 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
             print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_metrics['loss']:.4f}, "
                   f"Val F1: {val_metrics['f1']:.4f}, Val ROC AUC: {val_metrics['roc_auc']:.4f}")
             
-            # 保存最佳模型
-            if best_val_metrics is None or val_metrics['f1'] > best_val_metrics['f1']:
+            # 保存最佳模型 - 使用validation loss而不是F1
+            if best_val_metrics is None or val_metrics['loss'] < best_val_metrics['loss']:
                 best_val_metrics = val_metrics
                 best_model_state = model.state_dict().copy()
                 patience_counter = 0
-                print(f"Epoch {epoch+1}: 新的最佳模型已保存，F1={val_metrics['f1']:.4f}")
+                print(f"Epoch {epoch+1}: 新的最佳模型已保存，Val Loss={val_metrics['loss']:.4f}")
             else:
                 patience_counter += 1
                 print(f"没有改进，耐心计数器: {patience_counter}/{args.patience}")
