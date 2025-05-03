@@ -34,4 +34,5 @@ python train_models.py \
   --use_wandb \
   --wandb_project "ADN_BERT_BiLSTM" \
   --wandb_entity "" \
-  --use_single_split
+  --use_single_split \
+  --validation_steps 5
