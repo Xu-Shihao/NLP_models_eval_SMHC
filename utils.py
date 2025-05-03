@@ -88,7 +88,7 @@ class LongTextDataset(Dataset):
                 if len(chunks) > 0:
                     # 随机选择min(max_chunks, len(chunks))个chunk
                     num_selected = min(self.max_chunks, len(chunks))
-                    selected_indices = np.random.choice(len(chunks), num_selected, replace=False)
+                    selected_indices = np.random.choice(len(chunks), 1, replace=False)
                     for selected_idx in selected_indices:
                         self.text_chunks.append(chunks[selected_idx])
                         self.chunk_to_sample_idx.append(idx)
