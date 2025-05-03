@@ -220,14 +220,25 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     
     print(f"===== 开始训练BERT模型 (Fold {fold_idx+1}) =====")
     
+    # 在训练开始前先评估一次（epoch=0）
+    print("在训练开始前进行初始评估 (Epoch 0)...")
+    val_metrics, val_labels, val_preds, val_probs, val_indices = evaluate_with_fusion(
+        model, val_loader, device, criterion, fusion_method=args.fusion_method, mode="val", epoch=0, fold=fold_idx, model_type="BERT"
+    )
+    print(f"初始评估 - Val Loss: {val_metrics['loss']:.4f}, Val F1: {val_metrics['f1']:.4f}, Val ROC AUC: {val_metrics['roc_auc']:.4f}")
+    
+    # 记录初始评估结果
+    best_val_metrics = val_metrics
+    best_model_state = model.state_dict().copy()
+    
     for epoch in range(args.epochs):
         print(f"Epoch {epoch+1}/{args.epochs}")
         
         # 训练
         train_loss = train_epoch(model, train_loader, optimizer, scheduler, device, criterion, epoch, "BERT")
         
-        # 如果设置了按epoch进行验证，且当前epoch符合验证间隔，就进行验证
-        should_validate = args.validation_steps <= 0 or (epoch + 1) % args.validation_steps == 0
+        # 每5个epoch进行一次验证
+        should_validate = (epoch + 1) % 5 == 0
         
         if should_validate:
             # 验证（使用late fusion）
@@ -552,14 +563,25 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     
     print(f"===== 开始训练BiLSTM模型 (Fold {fold_idx+1}) =====")
     
+    # 在训练开始前先评估一次（epoch=0）
+    print("在训练开始前进行初始评估 (Epoch 0)...")
+    val_metrics, val_labels, val_preds, val_probs, val_indices = evaluate_with_fusion(
+        model, val_loader, device, criterion, fusion_method=args.fusion_method, mode="val", epoch=0, fold=fold_idx, model_type="BiLSTM"
+    )
+    print(f"初始评估 - Val Loss: {val_metrics['loss']:.4f}, Val F1: {val_metrics['f1']:.4f}, Val ROC AUC: {val_metrics['roc_auc']:.4f}")
+    
+    # 记录初始评估结果
+    best_val_metrics = val_metrics
+    best_model_state = model.state_dict().copy()
+    
     for epoch in range(args.epochs):
         print(f"Epoch {epoch+1}/{args.epochs}")
         
         # 训练
         train_loss = train_epoch(model, train_loader, optimizer, scheduler, device, criterion, epoch, "BiLSTM")
         
-        # 如果设置了按epoch进行验证，且当前epoch符合验证间隔，就进行验证
-        should_validate = args.validation_steps <= 0 or (epoch + 1) % args.validation_steps == 0
+        # 每5个epoch进行一次验证
+        should_validate = (epoch + 1) % 5 == 0
         
         if should_validate:
             # 验证（使用late fusion）
