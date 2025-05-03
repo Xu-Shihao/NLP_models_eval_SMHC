@@ -21,15 +21,10 @@ from utils import (
     calculate_metrics, plot_metrics, save_predictions, late_fusion
 )
 
-def train_epoch(model, data_loader, optimizer, scheduler, device, criterion, epoch=None, model_type=None, 
-               val_loader=None, args=None, fold_idx=None, best_val_metrics=None, best_model_state=None):
+def train_epoch(model, data_loader, optimizer, scheduler, device, criterion, epoch=None, model_type=None):
     """训练一个epoch"""
     model.train()
     total_loss = 0
-    steps = 0
-    patience_counter = 0
-    updated_best_metrics = best_val_metrics
-    updated_best_model_state = best_model_state
     
     for batch in tqdm(data_loader, desc="Training"):
         optimizer.zero_grad()
@@ -51,32 +46,6 @@ def train_epoch(model, data_loader, optimizer, scheduler, device, criterion, epo
             scheduler.step()
         
         total_loss += loss.item()
-        steps += 1
-        
-        # 如果设置了validation_steps并且达到了步数，进行验证
-        if args and args.validation_steps > 0 and val_loader and steps % args.validation_steps == 0:
-            print(f"\n第{steps}步: 进行验证评估")
-            # 暂存当前训练状态
-            model.eval()
-            
-            # 验证（使用late fusion）
-            val_metrics, val_labels, val_preds, val_probs, val_indices = evaluate_with_fusion(
-                model, val_loader, device, criterion, fusion_method=args.fusion_method, 
-                mode="val", epoch=epoch, fold=fold_idx, model_type=model_type, step=steps
-            )
-            
-            print(f"当前步数: {steps}, Val Loss: {val_metrics['loss']:.4f}, "
-                  f"Val F1: {val_metrics['f1']:.4f}, Val ROC AUC: {val_metrics['roc_auc']:.4f}")
-            
-            # 保存最佳模型
-            if updated_best_metrics is None or val_metrics['f1'] > updated_best_metrics['f1']:
-                updated_best_metrics = val_metrics
-                updated_best_model_state = model.state_dict().copy()
-                patience_counter = 0
-                print(f"步数 {steps}: 新的最佳模型已保存，F1={val_metrics['f1']:.4f}")
-            
-            # 恢复训练状态
-            model.train()
     
     avg_loss = total_loss / len(data_loader)
     
@@ -90,7 +59,7 @@ def train_epoch(model, data_loader, optimizer, scheduler, device, criterion, epo
             "epoch": epoch
         })
         
-    return avg_loss, updated_best_metrics, updated_best_model_state, patience_counter
+    return avg_loss
 
 def evaluate(model, data_loader, device, criterion):
     """在验证/测试集上评估模型"""
@@ -240,9 +209,9 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
         print(f"学习率衰减因子: {args.lr_decay_factor}")
         print(f"学习率衰减轮数: {args.lr_decay_epochs}")
     
-    # 显示每多少步验证一次的信息
+    # 显示每多少个epoch验证一次的信息
     if args.validation_steps > 0:
-        print(f"每 {args.validation_steps} 步进行一次验证评估")
+        print(f"每 {args.validation_steps} 个epoch进行一次验证评估")
     
     # 训练模型
     best_val_metrics = None
@@ -255,21 +224,12 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
         print(f"Epoch {epoch+1}/{args.epochs}")
         
         # 训练
-        train_loss, best_val_metrics, best_model_state, new_patience = train_epoch(
-            model, train_loader, optimizer, scheduler, device, criterion, epoch, "BERT",
-            val_loader=val_loader if args.validation_steps > 0 else None, 
-            args=args if args.validation_steps > 0 else None,
-            fold_idx=fold_idx,
-            best_val_metrics=best_val_metrics,
-            best_model_state=best_model_state
-        )
+        train_loss = train_epoch(model, train_loader, optimizer, scheduler, device, criterion, epoch, "BERT")
         
-        # 更新耐心计数器（如果在训练过程中已经更新了最佳模型）
-        if args.validation_steps > 0:
-            patience_counter = new_patience
+        # 如果设置了按epoch进行验证，且当前epoch符合验证间隔，就进行验证
+        should_validate = args.validation_steps <= 0 or (epoch + 1) % args.validation_steps == 0
         
-        # 如果不是每步验证，则在每个epoch结束后验证
-        if args.validation_steps <= 0:
+        if should_validate:
             # 验证（使用late fusion）
             val_metrics, val_labels, val_preds, val_probs, val_indices = evaluate_with_fusion(
                 model, val_loader, device, criterion, fusion_method=args.fusion_method, mode="val", epoch=epoch, fold=fold_idx, model_type="BERT"
@@ -581,9 +541,9 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
         print(f"学习率衰减因子: {args.lr_decay_factor}")
         print(f"学习率衰减轮数: {args.lr_decay_epochs}")
     
-    # 显示每多少步验证一次的信息
+    # 显示每多少个epoch验证一次的信息
     if args.validation_steps > 0:
-        print(f"每 {args.validation_steps} 步进行一次验证评估")
+        print(f"每 {args.validation_steps} 个epoch进行一次验证评估")
     
     # 训练模型
     best_val_metrics = None
@@ -596,21 +556,12 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
         print(f"Epoch {epoch+1}/{args.epochs}")
         
         # 训练
-        train_loss, best_val_metrics, best_model_state, new_patience = train_epoch(
-            model, train_loader, optimizer, scheduler, device, criterion, epoch, "BiLSTM",
-            val_loader=val_loader if args.validation_steps > 0 else None, 
-            args=args if args.validation_steps > 0 else None,
-            fold_idx=fold_idx,
-            best_val_metrics=best_val_metrics,
-            best_model_state=best_model_state
-        )
+        train_loss = train_epoch(model, train_loader, optimizer, scheduler, device, criterion, epoch, "BiLSTM")
         
-        # 更新耐心计数器（如果在训练过程中已经更新了最佳模型）
-        if args.validation_steps > 0:
-            patience_counter = new_patience
+        # 如果设置了按epoch进行验证，且当前epoch符合验证间隔，就进行验证
+        should_validate = args.validation_steps <= 0 or (epoch + 1) % args.validation_steps == 0
         
-        # 如果不是每步验证，则在每个epoch结束后验证
-        if args.validation_steps <= 0:
+        if should_validate:
             # 验证（使用late fusion）
             val_metrics, val_labels, val_preds, val_probs, val_indices = evaluate_with_fusion(
                 model, val_loader, device, criterion, fusion_method=args.fusion_method, mode="val", epoch=epoch, fold=fold_idx, model_type="BiLSTM"
@@ -753,9 +704,9 @@ def main():
     parser.add_argument("--use_single_split", action="store_true",
                         help="使用单次80/20分割进行训练和测试，不使用k-fold交叉验证")
     
-    # 新增参数：指定每多少步进行一次验证
+    # 新增参数：指定每多少个epoch进行一次验证
     parser.add_argument("--validation_steps", type=int, default=0,
-                        help="每多少步进行一次验证评估，0表示每个epoch结束时验证")
+                        help="每多少个epoch进行一次验证评估，0表示每个epoch结束时验证")
     
     args = parser.parse_args()
     
