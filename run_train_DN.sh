@@ -10,8 +10,8 @@ python train_models.py \
   --n_folds 10 \
   --batch_size 32 \
   --epochs 200 \
-  --bert_learning_rate 1e-3 \
-  --bilstm_learning_rate 1e-4 \
+  --bert_learning_rate 1e-2 \
+  --bilstm_learning_rate 1e-5 \
   --warmup_ratio 0.05 \
   --lr_decay_factor 0.8 \
   --lr_decay_epochs "2,4,6,8,10,12,14,16" \
