@@ -21,7 +21,7 @@ python train_models.py \
   --dropout 0.2 \
   --seed 42 \
   --max_seq_length 512 \
-  --bert_model_name "hfl/chinese-roberta-wwm-ext-large" \
+  --bert_model_name "google-bert/bert-base-chinese" \
   --embedding_dim 200 \
   --hidden_dim 256 \
   --num_layers 2 \
