@@ -245,13 +245,13 @@ def late_fusion(sample_indices, all_probs, fusion_method='mean'):
     return unique_indices, np.array(fused_probs)
 
 def plot_metrics(metrics_list, title):
-    """绘制多折交叉验证的性能指标图"""
+    """Plot performance metrics for cross-validation folds"""
     metrics_df = pd.DataFrame(metrics_list)
     
     plt.figure(figsize=(12, 8))
     sns.boxplot(data=metrics_df)
-    plt.title(f'{title} 性能指标分布')
-    plt.ylabel('分数')
+    plt.title(f'{title} Performance Metrics Distribution')
+    plt.ylabel('Score')
     plt.ylim(0, 1)
     plt.grid(True)
     

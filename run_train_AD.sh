@@ -9,13 +9,13 @@ python train_models.py \
   --random_state 42 \
   --val_ratio 0.2 \
   --n_folds 10 \
-  --batch_size 8 \
-  --epochs 8 \
-  --bert_learning_rate 2e-5 \
-  --bilstm_learning_rate 5e-4 \
-  --warmup_ratio 0.1 \
-  --lr_decay_factor 0.1 \
-  --lr_decay_epochs "3,5" \
+  --batch_size 64 \
+  --epochs 200 \
+  --bert_learning_rate 1e-2 \
+  --bilstm_learning_rate 1e-5 \
+  --warmup_ratio 0.05 \
+  --lr_decay_factor 0.8 \
+  --lr_decay_epochs "2,4,6,8,10,12,14,16" \
   --weight_decay 0.01 \
   --patience 5 \
   --dropout 0.2 \
@@ -26,12 +26,12 @@ python train_models.py \
   --hidden_dim 256 \
   --num_layers 2 \
   --min_freq 2 \
-  --max_chunks 8 \
+  --max_chunks 5 \
   --fusion_method "mean" \
   --train_bert \
   --train_bilstm \
   --use_pretrained_word2vec \
-  --lr_scheduler "cosine" \
+  --lr_scheduler "linear" \
   --gpu_device 0 \
   --use_wandb \
   --wandb_project "AD_BERT_BiLSTM" \
