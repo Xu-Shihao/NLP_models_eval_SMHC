@@ -3,31 +3,27 @@ import torch.nn as nn
 from transformers import BertModel
 
 class BertClassifier(nn.Module):
-    def __init__(self, pretrained_model_name="bert-base-chinese", num_classes=2, dropout_prob=0.1, hidden_dim=128):
+    def __init__(self, pretrained_model_name="bert-base-chinese", num_classes=2, dropout_prob=0.1, frozen_layers=8):
         super(BertClassifier, self).__init__()
         self.bert = BertModel.from_pretrained(pretrained_model_name)
         
-        # 冻结BERT模型参数
-        for param in self.bert.parameters():
-            param.requires_grad = False
+        # 冻结BERT的前n层，只微调后面的层
+        modules = [self.bert.embeddings, *self.bert.encoder.layer[:frozen_layers]]
+        for module in modules:
+            for param in module.parameters():
+                param.requires_grad = False
             
-        # 两层线性层与激活函数
-        self.dropout1 = nn.Dropout(dropout_prob)
-        self.linear1 = nn.Linear(self.bert.config.hidden_size, hidden_dim)
-        self.activation = nn.ReLU()
-        self.dropout2 = nn.Dropout(dropout_prob)
-        self.linear2 = nn.Linear(hidden_dim, num_classes)
+        # 简化为1层线性层
+        self.dropout = nn.Dropout(dropout_prob)
+        self.classifier = nn.Linear(self.bert.config.hidden_size, num_classes)
         
     def forward(self, input_ids, attention_mask):
         outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
         pooled_output = outputs.pooler_output
         
-        # 通过两层线性层与激活函数
-        x = self.dropout1(pooled_output)
-        x = self.linear1(x)
-        x = self.activation(x)
-        x = self.dropout2(x)
-        logits = self.linear2(x)
+        # 通过1层线性层
+        x = self.dropout(pooled_output)
+        logits = self.classifier(x)
         
         return logits
 
