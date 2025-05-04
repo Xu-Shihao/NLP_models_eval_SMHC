@@ -11,7 +11,7 @@ python train_models.py \
   --n_folds 10 \
   --batch_size 64 \
   --epochs 200 \
-  --bert_learning_rate 1e-2 \
+  --bert_learning_rate 1e-3 \
   --bilstm_learning_rate 1e-5 \
   --warmup_ratio 0.05 \
   --lr_decay_factor 0.8 \
@@ -32,7 +32,7 @@ python train_models.py \
   --train_bilstm \
   --use_pretrained_word2vec \
   --lr_scheduler linear \
-  --gpu_device 0 \
+  --gpu_device 1 \
   --use_wandb \
   --wandb_project "ADN_BERT_BiLSTM" \
   --wandb_entity "" \

@@ -11,7 +11,7 @@ python train_models.py \
   --n_folds 10 \
   --batch_size 64 \
   --epochs 200 \
-  --bert_learning_rate 1e-2 \
+  --bert_learning_rate 1e-3 \
   --bilstm_learning_rate 1e-5 \
   --warmup_ratio 0.05 \
   --lr_decay_factor 0.8 \
