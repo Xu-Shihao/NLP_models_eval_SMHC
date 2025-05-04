@@ -22,7 +22,7 @@ python train_models.py \
   --seed 42 \
   --max_seq_length 512 \
   --bert_model_name "hfl/chinese-roberta-wwm-ext-large" \
-  --embedding_dim 300 \
+  --embedding_dim 200 \
   --hidden_dim 256 \
   --num_layers 2 \
   --min_freq 2 \
@@ -30,6 +30,7 @@ python train_models.py \
   --fusion_method "mean" \
   --train_bert \
   --train_bilstm \
+  --use_pretrained_word2vec \
   --lr_scheduler "cosine" \
   --gpu_device 0 \
   --use_wandb \

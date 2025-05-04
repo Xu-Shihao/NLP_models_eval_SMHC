@@ -14,6 +14,7 @@ from collections import Counter
 import matplotlib.pyplot as plt
 import wandb
 import math
+from text2vec import Word2Vec  # 添加text2vec的Word2Vec导入
 
 from models import BertClassifier, BiLSTMClassifier
 from utils import (
@@ -33,6 +34,29 @@ def load_stopwords(stopwords_file=None):
                     stopwords.add(word)
         print(f"已加载{len(stopwords)}个停用词")
     return stopwords
+
+def load_pretrained_embeddings(vocab, embedding_dim, model_name="w2v-light-tencent-chinese"):
+    """加载预训练词向量并映射到词表"""
+    print(f"加载预训练词向量模型({model_name})...")
+    w2v_model = Word2Vec(model_name)
+    
+    print("创建embedding矩阵...")
+    vocab_size = len(vocab)
+    embedding_matrix = np.zeros((vocab_size, embedding_dim))
+    
+    # 填充embedding矩阵
+    word_vectors = w2v_model.model.wv  # 获取词向量
+    oov_count = 0
+    for word, idx in tqdm(vocab.items(), desc="构建词向量矩阵"):
+        if word in word_vectors:
+            embedding_matrix[idx] = word_vectors[word]
+        else:
+            # 对于OOV词，使用随机初始化
+            oov_count += 1
+            embedding_matrix[idx] = np.random.normal(0, 0.1, size=embedding_dim)
+    
+    print(f"OOV词比例: {oov_count}/{vocab_size} ({oov_count/vocab_size*100:.2f}%)")
+    return torch.FloatTensor(embedding_matrix)
 
 def train_epoch(model, data_loader, optimizer, scheduler, device, criterion, epoch=None, model_type=None):
     """训练一个epoch"""
@@ -488,6 +512,16 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     vocab_size = len(vocab)
     print(f"词汇表大小: {vocab_size}")
     
+    # 预训练词向量矩阵
+    embedding_matrix = None
+    
+    # 如果指定使用预训练词向量
+    if args.use_pretrained_word2vec:
+        # 加载预训练词向量
+        embedding_matrix = load_pretrained_embeddings(vocab, args.embedding_dim)
+    else:
+        print("使用随机初始化的词向量")
+    
     # 自定义分词器
     tokenizer = BiLSTMTokenizer(vocab, max_length=args.max_seq_length, stopwords=stopwords)
     
@@ -524,7 +558,8 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
         hidden_dim=args.hidden_dim,
         num_layers=args.num_layers,
         num_classes=num_classes,
-        dropout_prob=args.dropout
+        dropout_prob=args.dropout,
+        pretrained_embeddings=embedding_matrix  # 可能是None，由模型内部处理
     )
     model.to(device)
     
@@ -723,14 +758,16 @@ def main():
                         help="BERT预训练模型名称")
     
     # BiLSTM特定参数
-    parser.add_argument("--embedding_dim", type=int, default=300,
-                        help="词嵌入维度")
+    parser.add_argument("--embedding_dim", type=int, default=200,
+                        help="词嵌入维度(预训练向量维度为200，若使用预训练词向量，此参数需要设为200)")
     parser.add_argument("--hidden_dim", type=int, default=256,
                         help="隐藏层维度")
     parser.add_argument("--num_layers", type=int, default=2,
                         help="LSTM层数")
     parser.add_argument("--min_freq", type=int, default=2,
                         help="词汇表最小词频")
+    parser.add_argument("--use_pretrained_word2vec", action="store_true",
+                        help="是否使用预训练的text2vec-word2vec-tencent-chinese词向量")
     
     # LongTextDataset参数
     parser.add_argument("--max_chunks", type=int, default=10,
@@ -774,6 +811,16 @@ def main():
     if not args.train_bert and not args.train_bilstm:
         args.train_bert = True
         args.train_bilstm = True
+    
+    # 打印预训练词向量使用信息
+    if args.train_bilstm:
+        if args.use_pretrained_word2vec:
+            print("BiLSTM将使用预训练的text2vec-word2vec-tencent-chinese词向量")
+            print(f"词向量维度设置为: {args.embedding_dim}")
+            if args.embedding_dim != 200:
+                print("警告: text2vec-word2vec-tencent-chinese词向量维度为200，请将embedding_dim设置为200")
+        else:
+            print("BiLSTM将使用随机初始化的词向量")
     
     # 设置随机种子
     torch.manual_seed(args.seed)

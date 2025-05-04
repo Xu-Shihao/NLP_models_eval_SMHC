@@ -76,6 +76,11 @@ def main():
     parser.add_argument("--bert_model_name", type=str, default="hfl/chinese-roberta-wwm-ext-large",
                         help="BERT预训练模型名称")
     
+    # BiLSTM特定参数
+    parser.add_argument("--embedding_dim", type=int, default=200,
+                        help="词嵌入维度(预训练向量维度为200，若使用预训练词向量，此参数需要设为200)")
+    parser.add_argument("--use_pretrained_word2vec", action="store_true",
+                        help="是否使用预训练的text2vec-word2vec-tencent-chinese词向量")
     
     # 新增参数：长文本处理参数
     parser.add_argument("--bert_learning_rate", type=float, default=2e-6,
@@ -119,6 +124,12 @@ def main():
     
     args = parser.parse_args()
     
+    # 检查预训练词向量和embedding_dim的兼容性
+    if args.use_pretrained_word2vec and args.embedding_dim != 200:
+        print("警告: text2vec-word2vec-tencent-chinese词向量维度为200，但设置的embedding_dim为", args.embedding_dim)
+        print("自动将embedding_dim调整为200")
+        args.embedding_dim = 200
+    
     # 如果仅需要显示序列长度，则执行分析并退出
     if args.only_show_seq_length:
         analyze_seq_length(args.data_file, args.bert_model_name)
@@ -141,6 +152,7 @@ def main():
         "--max_seq_length", str(args.max_seq_length),
         "--epochs", str(args.epochs),
         "--bert_model_name", args.bert_model_name,
+        "--embedding_dim", str(args.embedding_dim),
         "--max_chunks", str(args.max_chunks),
         "--fusion_method", args.fusion_method,
         "--bert_learning_rate", str(args.bert_learning_rate),
@@ -163,6 +175,10 @@ def main():
     if args.train_bilstm:
         cmd.append("--train_bilstm")
     
+    # 添加预训练词向量参数
+    if args.use_pretrained_word2vec:
+        cmd.append("--use_pretrained_word2vec")
+        
     # 如果两者都未指定，默认情况下两个模型都会训练（由train_models.py处理）
     
     # 如果启用wandb，添加相应参数
@@ -184,8 +200,16 @@ def main():
         print("仅训练BERT模型")
     elif not args.train_bert and args.train_bilstm:
         print("仅训练BiLSTM模型")
+        if args.use_pretrained_word2vec:
+            print(f"BiLSTM将使用预训练的text2vec-word2vec-tencent-chinese词向量 (维度: {args.embedding_dim})")
+        else:
+            print("BiLSTM将使用随机初始化的词向量")
     else:
         print("训练BERT和BiLSTM模型")
+        if args.use_pretrained_word2vec:
+            print(f"BiLSTM将使用预训练的text2vec-word2vec-tencent-chinese词向量 (维度: {args.embedding_dim})")
+        else:
+            print("BiLSTM将使用随机初始化的词向量")
     
     print(f"输出目录: {args.output_dir}")
     print(f"执行命令: {' '.join(cmd)}")
