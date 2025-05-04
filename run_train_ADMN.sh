@@ -9,7 +9,7 @@ python train_models.py \
   --random_state 42 \
   --val_ratio 0.2 \
   --n_folds 10 \
-  --batch_size 64 \
+  --batch_size 16 \
   --epochs 200 \
   --bert_learning_rate 1e-3 \
   --bilstm_learning_rate 1e-5 \
