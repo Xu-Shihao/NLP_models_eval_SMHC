@@ -10,6 +10,7 @@ from sklearn.metrics import (
 import matplotlib.pyplot as plt
 import seaborn as sns
 from transformers import BertTokenizer
+import jieba  # 添加jieba导入
 
 class TextDataset(Dataset):
     def __init__(self, texts, labels, tokenizer, max_length=128):
@@ -43,19 +44,27 @@ class TextDataset(Dataset):
 
 class LongTextDataset(Dataset):
     """处理长文本的数据集类，支持分段切分和late fusion"""
-    def __init__(self, texts, labels, tokenizer, chunk_length=512, max_chunks=8, is_training=True):
+    def __init__(self, texts, labels, tokenizer, chunk_length=512, max_chunks=8, is_training=True, stopwords=None):
         self.texts = texts
         self.labels = labels
         self.tokenizer = tokenizer
         self.chunk_length = chunk_length
         self.max_chunks = max_chunks  # 每个样本最多使用的chunk数
         self.is_training = is_training
+        self.stopwords = stopwords
         
         # 预处理文本，切分为chunks
         self.text_chunks = []
         self.chunk_to_sample_idx = []  # 记录每个chunk属于哪个原始样本
         
         for idx, text in enumerate(texts):
+            # 如果使用停用词过滤且是BERT分词器
+            if self.stopwords and isinstance(self.tokenizer, BertTokenizer):
+                # 使用jieba分词，然后过滤停用词
+                words = jieba.lcut(str(text))
+                filtered_words = [word for word in words if word not in self.stopwords]
+                text = "".join(filtered_words)  # 重新拼接为文本
+            
             # 编码整个文本
             encoded = self.tokenizer.encode_plus(
                 str(text),

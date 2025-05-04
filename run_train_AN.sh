@@ -5,6 +5,7 @@
 python train_models.py \
   --data_file "./dataset/AN_clean_text.csv" \
   --output_dir "./results/AN" \
+  --stopwords_file "./stop_words/chinese_stopwords.txt" \
   --random_state 42 \
   --val_ratio 0.2 \
   --n_folds 10 \

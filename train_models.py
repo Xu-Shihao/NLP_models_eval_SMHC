@@ -21,6 +21,19 @@ from utils import (
     calculate_metrics, plot_metrics, save_predictions, late_fusion
 )
 
+# 添加停用词加载函数
+def load_stopwords(stopwords_file=None):
+    """加载停用词表"""
+    stopwords = set()
+    if stopwords_file and os.path.exists(stopwords_file):
+        with open(stopwords_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                word = line.strip()
+                if word:
+                    stopwords.add(word)
+        print(f"已加载{len(stopwords)}个停用词")
+    return stopwords
+
 def train_epoch(model, data_loader, optimizer, scheduler, device, criterion, epoch=None, model_type=None):
     """训练一个epoch"""
     model.train()
@@ -114,6 +127,9 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
         device = torch.device("cpu")
         print("使用CPU进行训练")
     
+    # 加载停用词（如果提供）
+    stopwords = load_stopwords(args.stopwords_file) if args.stopwords_file else None
+    
     # 加载分词器
     tokenizer = BertTokenizer.from_pretrained(args.bert_model_name)
     
@@ -123,19 +139,22 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
         train_texts, train_labels, tokenizer, 
         chunk_length=chunk_length, 
         max_chunks=args.max_chunks, 
-        is_training=True
+        is_training=True,
+        stopwords=stopwords
     )
     val_dataset = LongTextDataset(
         val_texts, val_labels, tokenizer, 
         chunk_length=chunk_length, 
         max_chunks=args.max_chunks, 
-        is_training=False
+        is_training=False,
+        stopwords=stopwords
     )
     test_dataset = LongTextDataset(
         test_texts, test_labels, tokenizer, 
         chunk_length=chunk_length, 
         max_chunks=args.max_chunks, 
-        is_training=False
+        is_training=False,
+        stopwords=stopwords
     )
     
     # 创建DataLoader
@@ -357,12 +376,15 @@ def evaluate_with_fusion(model, data_loader, device, criterion, fusion_method='m
     
     return metrics, fused_labels, fused_preds, fused_probs, unique_indices
 
-def build_vocab(texts, min_freq=2):
+def build_vocab(texts, min_freq=2, stopwords=None):
     """为BiLSTM构建词汇表"""
     word_counts = Counter()
     
     for text in texts:
         words = jieba.lcut(str(text))
+        # 过滤停用词
+        if stopwords:
+            words = [word for word in words if word not in stopwords]
         word_counts.update(words)
     
     # 过滤低频词
@@ -381,12 +403,17 @@ def build_vocab(texts, min_freq=2):
 
 class BiLSTMTokenizer:
     """用于BiLSTM模型的分词器"""
-    def __init__(self, vocab, max_length=128):
+    def __init__(self, vocab, max_length=128, stopwords=None):
         self.vocab = vocab
         self.max_length = max_length
+        self.stopwords = stopwords
     
     def __call__(self, text, **kwargs):
         words = jieba.lcut(str(text))
+        
+        # 过滤停用词
+        if self.stopwords:
+            words = [word for word in words if word not in self.stopwords]
         
         # 将单词转换为ID
         ids = []
@@ -415,6 +442,10 @@ class BiLSTMTokenizer:
                    truncation=False, return_tensors=None, **kwargs):
         """添加与BertTokenizer兼容的encode_plus方法"""
         words = jieba.lcut(str(text))
+        
+        # 过滤停用词
+        if self.stopwords:
+            words = [word for word in words if word not in self.stopwords]
         
         # 将单词转换为ID
         ids = []
@@ -448,14 +479,17 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
         device = torch.device("cpu")
         print("使用CPU进行训练")
     
+    # 加载停用词（如果提供）
+    stopwords = load_stopwords(args.stopwords_file) if args.stopwords_file else None
+    
     # 构建词汇表
     all_train_texts = np.concatenate([train_texts, val_texts])
-    vocab = build_vocab(all_train_texts, min_freq=args.min_freq)
+    vocab = build_vocab(all_train_texts, min_freq=args.min_freq, stopwords=stopwords)
     vocab_size = len(vocab)
     print(f"词汇表大小: {vocab_size}")
     
     # 自定义分词器
-    tokenizer = BiLSTMTokenizer(vocab, max_length=args.max_seq_length)
+    tokenizer = BiLSTMTokenizer(vocab, max_length=args.max_seq_length, stopwords=stopwords)
     
     # 使用LongTextDataset处理长文本
     chunk_length = 512  # 固定chunk长度为512
@@ -653,6 +687,10 @@ def main():
                         help="验证集比例")
     parser.add_argument("--n_folds", type=int, default=5,
                         help="交叉验证折数")
+    
+    # 新增停用词参数
+    parser.add_argument("--stopwords_file", type=str, default=None,
+                        help="停用词文件路径，每行一个停用词")
     
     # 训练参数
     parser.add_argument("--batch_size", type=int, default=8,
