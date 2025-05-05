@@ -68,12 +68,21 @@ def main():
     parser.add_argument("--epochs", type=int, default=100,
                         help="训练轮数")
     
+    # 数据分割模式
+    parser.add_argument("--split_mode", type=str, default="kfold", choices=["kfold", "fixed"],
+                        help="数据分割模式：kfold (K折交叉验证) 或 fixed (固定80%训练/20%测试)")
+    parser.add_argument("--test_ratio", type=float, default=0.2,
+                        help="当split_mode为fixed时，测试集占总数据的比例")
+    parser.add_argument("--random_state", type=int, default=42,
+                        help="随机种子")
+    parser.add_argument("--val_ratio", type=float, default=0.2,
+                        help="验证集比例")
+    
     # BERT特定参数
     parser.add_argument("--bert_model_name", type=str, default="hfl/chinese-roberta-wwm-ext-large",
                         help="BERT预训练模型名称")
     
-    
-    # 新增参数：长文本处理参数
+    # 长文本处理参数
     parser.add_argument("--bert_learning_rate", type=float, default=2e-6,
                         help="BERT模型学习率")
     parser.add_argument("--bilstm_learning_rate", type=float, default=1e-4,
@@ -90,6 +99,26 @@ def main():
                         help="每个样本最多使用的chunk数")
     parser.add_argument("--fusion_method", type=str, default='mean', choices=['mean', 'max'],
                         help="late fusion方法，可选'mean'或'max'")
+    
+    # 训练参数
+    parser.add_argument("--weight_decay", type=float, default=0.01,
+                        help="权重衰减")
+    parser.add_argument("--patience", type=int, default=20,
+                        help="早停耐心值")
+    parser.add_argument("--dropout", type=float, default=0.1,
+                        help="Dropout比例")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="随机种子")
+    
+    # BiLSTM特定参数
+    parser.add_argument("--embedding_dim", type=int, default=300,
+                        help="词嵌入维度")
+    parser.add_argument("--hidden_dim", type=int, default=256,
+                        help="隐藏层维度")
+    parser.add_argument("--num_layers", type=int, default=2,
+                        help="LSTM层数")
+    parser.add_argument("--min_freq", type=int, default=2,
+                        help="词汇表最小词频")
     
     # 新增参数：模型选择和训练模式
     parser.add_argument("--train_bert", action="store_true",
@@ -132,7 +161,6 @@ def main():
         "python", "train_models.py",
         "--data_file", args.data_file,
         "--output_dir", args.output_dir,
-        "--n_folds", str(args.n_folds),
         "--batch_size", str(args.batch_size),
         "--max_seq_length", str(args.max_seq_length),
         "--epochs", str(args.epochs),
@@ -146,7 +174,23 @@ def main():
         "--lr_decay_epochs", args.lr_decay_epochs,
         "--lr_scheduler", args.lr_scheduler,
         "--gpu_device", args.gpu_device,
+        "--random_state", str(args.random_state),
+        "--val_ratio", str(args.val_ratio),
+        "--weight_decay", str(args.weight_decay),
+        "--patience", str(args.patience),
+        "--dropout", str(args.dropout),
+        "--seed", str(args.seed),
+        "--embedding_dim", str(args.embedding_dim),
+        "--hidden_dim", str(args.hidden_dim),
+        "--num_layers", str(args.num_layers),
+        "--min_freq", str(args.min_freq),
     ]
+    
+    # 添加数据分割模式参数
+    if args.split_mode == "kfold":
+        cmd.extend(["--n_folds", str(args.n_folds)])
+    else:  # fixed
+        cmd.extend(["--split_mode", "fixed", "--test_ratio", str(args.test_ratio)])
     
     # 添加模型训练选择参数
     if args.train_bert:
@@ -178,6 +222,12 @@ def main():
         print("仅训练BiLSTM模型")
     else:
         print("训练BERT和BiLSTM模型")
+    
+    # 显示数据分割模式
+    if args.split_mode == "kfold":
+        print(f"使用{args.n_folds}折交叉验证")
+    else:
+        print(f"使用固定分割：{int(100 * (1 - args.test_ratio))}%训练 / {int(100 * args.test_ratio)}%测试")
     
     print(f"输出目录: {args.output_dir}")
     print(f"执行命令: {' '.join(cmd)}")

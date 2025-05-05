@@ -18,7 +18,7 @@ import math
 from models import BertClassifier, BiLSTMClassifier
 from utils import (
     TextDataset, LongTextDataset, load_data, prepare_kfold_data, split_train_val,
-    calculate_metrics, plot_metrics, save_predictions, late_fusion
+    calculate_metrics, plot_metrics, save_predictions, late_fusion, prepare_fixed_split_data
 )
 
 def train_epoch(model, data_loader, optimizer, scheduler, device, criterion, epoch=None, model_type=None):
@@ -609,6 +609,12 @@ def main():
     parser.add_argument("--n_folds", type=int, default=5,
                         help="交叉验证折数")
     
+    # 新增：数据分割模式参数
+    parser.add_argument("--split_mode", type=str, default="kfold", choices=["kfold", "fixed"],
+                        help="数据分割模式：kfold (K折交叉验证) 或 fixed (固定比例分割)")
+    parser.add_argument("--test_ratio", type=float, default=0.2,
+                        help="当split_mode为fixed时，测试集占总数据的比例")
+    
     # 训练参数
     parser.add_argument("--batch_size", type=int, default=8,
                         help="批次大小")
@@ -696,8 +702,15 @@ def main():
     print("正在加载数据...")
     df = load_data(args.data_file)
     
-    # 准备交叉验证数据集
-    texts, labels, fold_indices = prepare_kfold_data(df, n_splits=args.n_folds, random_state=args.random_state)
+    # 准备数据集
+    if args.split_mode == "kfold":
+        # 交叉验证模式
+        print(f"使用 {args.n_folds} 折交叉验证...")
+        texts, labels, fold_indices = prepare_kfold_data(df, n_splits=args.n_folds, random_state=args.random_state)
+    else:
+        # 固定比例分割模式
+        print(f"使用固定分割: {int(100 * (1 - args.test_ratio))}%训练 / {int(100 * args.test_ratio)}%测试")
+        texts, labels, fold_indices = prepare_fixed_split_data(df, test_ratio=args.test_ratio, random_state=args.random_state)
     
     # 获取类别数
     num_classes = len(np.unique(labels))
@@ -716,7 +729,7 @@ def main():
         print("\n========== 开始训练BERT模型 ==========")
         
         for fold_idx, (train_test_indices) in enumerate(fold_indices):
-            print(f"\n========== BERT: Fold {fold_idx+1}/{args.n_folds} ==========")
+            print(f"\n========== BERT: Fold {fold_idx+1}/{len(fold_indices)} ==========")
             
             # 检查该fold的模型是否已存在
             bert_model_path = os.path.join(args.output_dir, f"bert_fold_{fold_idx+1}.pt")
@@ -794,7 +807,7 @@ def main():
         print("\n========== 开始训练BiLSTM模型 ==========")
         
         for fold_idx, (train_test_indices) in enumerate(fold_indices):
-            print(f"\n========== BiLSTM: Fold {fold_idx+1}/{args.n_folds} ==========")
+            print(f"\n========== BiLSTM: Fold {fold_idx+1}/{len(fold_indices)} ==========")
             
             # 检查该fold的模型是否已存在
             bilstm_model_path = os.path.join(args.output_dir, f"bilstm_fold_{fold_idx+1}.pt")

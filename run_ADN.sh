@@ -30,4 +30,6 @@ python run.py \
   --gpu_device "0" \
   --train_bert \
   --wandb_project "AD_chinese-roberta-wwm-ext-large" \
-  --use_wandb 
+  --use_wandb \
+  --split_mode fixed \
+  --test_ratio 0.2

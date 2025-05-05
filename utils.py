@@ -130,6 +130,39 @@ def prepare_kfold_data(df, n_splits=10, random_state=42):
     
     return texts, labels, fold_indices
 
+def prepare_fixed_split_data(df, test_ratio=0.2, random_state=42):
+    """准备固定比例的训练/测试集划分
+    
+    Args:
+        df: 包含文本和标签的DataFrame
+        test_ratio: 测试集比例
+        random_state: 随机种子
+        
+    Returns:
+        texts: 所有文本
+        labels: 所有标签
+        fold_indices: 只包含一个元素的列表，元素为(train_indices, test_indices)
+    """
+    texts = df['cleaned_text'].values if 'cleaned_text' in df.columns else df['text'].values
+    labels = df['label'].values
+    
+    # 生成随机索引
+    indices = np.arange(len(texts))
+    np.random.seed(random_state)
+    np.random.shuffle(indices)
+    
+    # 计算分割点
+    test_size = int(len(indices) * test_ratio)
+    
+    # 划分训练集和测试集
+    test_indices = indices[:test_size]
+    train_indices = indices[test_size:]
+    
+    # 将划分结果放入fold_indices（只有一个fold）
+    fold_indices = [(train_indices, test_indices)]
+    
+    return texts, labels, fold_indices
+
 def split_train_val(train_indices, val_ratio=0.2, random_state=42):
     """将训练集进一步划分为训练集和验证集"""
     np.random.seed(random_state)
