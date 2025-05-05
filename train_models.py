@@ -115,7 +115,18 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
         print("使用CPU进行训练")
     
     # 加载分词器
-    tokenizer = BertTokenizer.from_pretrained(args.bert_model_name)
+    model_path = os.path.join("./model", args.bert_model_name)
+    if os.path.exists(model_path):
+        print(f"从本地加载BERT分词器: {model_path}")
+        tokenizer = BertTokenizer.from_pretrained(model_path)
+    else:
+        print(f"本地分词器不存在，从huggingface下载: {args.bert_model_name}")
+        # 确保model目录存在
+        os.makedirs(model_path, exist_ok=True)
+        # 从huggingface下载并保存到本地
+        tokenizer = BertTokenizer.from_pretrained(args.bert_model_name)
+        print(f"将分词器保存到本地: {model_path}")
+        tokenizer.save_pretrained(model_path)
     
     # 使用LongTextDataset处理长文本
     chunk_length = 512  # 固定chunk长度为512
@@ -231,11 +242,30 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
               f"Val F1: {val_metrics['f1']:.4f}, Val ROC AUC: {val_metrics['roc_auc']:.4f}")
         
         # 保存最佳模型
-        if best_val_metrics is None or val_metrics['f1'] > best_val_metrics['f1']:
+        if best_val_metrics is None or val_metrics['loss'] < best_val_metrics['loss']:
             best_val_metrics = val_metrics
             best_model_state = model.state_dict().copy()
             patience_counter = 0
-            print(f"Epoch {epoch+1}: 新的最佳模型已保存，F1={val_metrics['f1']:.4f}")
+            print(f"Epoch {epoch+1}: 新的最佳模型已保存，Loss={val_metrics['loss']:.4f}")
+            
+            # 保存验证集预测概率到CSV
+            val_df = pd.DataFrame({
+                'sample_idx': val_indices,
+                'y_true': val_labels,
+                'y_pred': val_preds,
+            })
+            
+            # 添加每个类别的概率列
+            for i in range(val_probs.shape[1]):
+                val_df[f'prob_class_{i}'] = val_probs[:, i]
+            
+            # 确保输出目录存在
+            if not os.path.exists(args.output_dir):
+                os.makedirs(args.output_dir)
+            
+            # 保存到CSV
+            val_df.to_csv(os.path.join(args.output_dir, f"bert_fold_{fold_idx+1}_val_probs.csv"), index=False)
+            print(f"验证集预测概率已保存到: {os.path.join(args.output_dir, f'bert_fold_{fold_idx+1}_val_probs.csv')}")
         else:
             patience_counter += 1
             print(f"没有改进，耐心计数器: {patience_counter}/{args.patience}")
@@ -256,6 +286,25 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     print("\n===== 最终测试集性能 =====")
     for metric_name, metric_value in test_metrics.items():
         print(f"{metric_name}: {metric_value:.4f}")
+    
+    # 保存测试集预测概率到CSV
+    test_df = pd.DataFrame({
+        'sample_idx': test_indices,
+        'y_true': test_labels,
+        'y_pred': test_preds,
+    })
+    
+    # 添加每个类别的概率列
+    for i in range(test_probs.shape[1]):
+        test_df[f'prob_class_{i}'] = test_probs[:, i]
+    
+    # 确保输出目录存在
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
+    
+    # 保存到CSV
+    test_df.to_csv(os.path.join(args.output_dir, f"bert_fold_{fold_idx+1}_test_probs.csv"), index=False)
+    print(f"测试集预测概率已保存到: {os.path.join(args.output_dir, f'bert_fold_{fold_idx+1}_test_probs.csv')}")
     
     # 保存模型
     if not os.path.exists(args.output_dir):
@@ -549,11 +598,30 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
               f"Val F1: {val_metrics['f1']:.4f}, Val ROC AUC: {val_metrics['roc_auc']:.4f}")
         
         # 保存最佳模型
-        if best_val_metrics is None or val_metrics['f1'] > best_val_metrics['f1']:
+        if best_val_metrics is None or val_metrics['loss'] < best_val_metrics['loss']:
             best_val_metrics = val_metrics
             best_model_state = model.state_dict().copy()
             patience_counter = 0
-            print(f"Epoch {epoch+1}: 新的最佳模型已保存，F1={val_metrics['f1']:.4f}")
+            print(f"Epoch {epoch+1}: 新的最佳模型已保存，Loss={val_metrics['loss']:.4f}")
+            
+            # 保存验证集预测概率到CSV
+            val_df = pd.DataFrame({
+                'sample_idx': val_indices,
+                'y_true': val_labels,
+                'y_pred': val_preds,
+            })
+            
+            # 添加每个类别的概率列
+            for i in range(val_probs.shape[1]):
+                val_df[f'prob_class_{i}'] = val_probs[:, i]
+            
+            # 确保输出目录存在
+            if not os.path.exists(args.output_dir):
+                os.makedirs(args.output_dir)
+            
+            # 保存到CSV
+            val_df.to_csv(os.path.join(args.output_dir, f"bilstm_fold_{fold_idx+1}_val_probs.csv"), index=False)
+            print(f"验证集预测概率已保存到: {os.path.join(args.output_dir, f'bilstm_fold_{fold_idx+1}_val_probs.csv')}")
         else:
             patience_counter += 1
             print(f"没有改进，耐心计数器: {patience_counter}/{args.patience}")
@@ -574,6 +642,25 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     print("\n===== 最终测试集性能 =====")
     for metric_name, metric_value in test_metrics.items():
         print(f"{metric_name}: {metric_value:.4f}")
+    
+    # 保存测试集预测概率到CSV
+    test_df = pd.DataFrame({
+        'sample_idx': test_indices,
+        'y_true': test_labels,
+        'y_pred': test_preds,
+    })
+    
+    # 添加每个类别的概率列
+    for i in range(test_probs.shape[1]):
+        test_df[f'prob_class_{i}'] = test_probs[:, i]
+    
+    # 确保输出目录存在
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
+    
+    # 保存到CSV
+    test_df.to_csv(os.path.join(args.output_dir, f"bilstm_fold_{fold_idx+1}_test_probs.csv"), index=False)
+    print(f"测试集预测概率已保存到: {os.path.join(args.output_dir, f'bilstm_fold_{fold_idx+1}_test_probs.csv')}")
     
     # 保存模型
     if not os.path.exists(args.output_dir):

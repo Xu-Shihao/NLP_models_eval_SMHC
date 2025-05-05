@@ -4,3 +4,5 @@ __pycache__*
 ./results/*
 ./venv/
 .DS_Store
+./models/*
+./results/*/*pt

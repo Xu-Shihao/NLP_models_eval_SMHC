@@ -1,11 +1,25 @@
 import torch
 import torch.nn as nn
-from transformers import BertModel
+from transformers import BertModel, BertConfig
+import os
 
 class BertClassifier(nn.Module):
     def __init__(self, pretrained_model_name="bert-base-chinese", num_classes=2, dropout_prob=0.1):
         super(BertClassifier, self).__init__()
-        self.bert = BertModel.from_pretrained(pretrained_model_name)
+        # 检查./model目录下是否有模型文件
+        model_path = os.path.join("./model", pretrained_model_name)
+        if os.path.exists(model_path):
+            print(f"从本地加载BERT模型: {model_path}")
+            self.bert = BertModel.from_pretrained(model_path)
+        else:
+            print(f"本地模型不存在，从huggingface下载: {pretrained_model_name}")
+            # 确保model目录存在
+            os.makedirs(model_path, exist_ok=True)
+            # 从huggingface下载并保存到本地
+            self.bert = BertModel.from_pretrained(pretrained_model_name)
+            print(f"将模型保存到本地: {model_path}")
+            self.bert.save_pretrained(model_path)
+        
         self.dropout = nn.Dropout(dropout_prob)
         self.classifier = nn.Linear(self.bert.config.hidden_size, num_classes)
         
