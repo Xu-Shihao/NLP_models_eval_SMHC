@@ -44,14 +44,18 @@ def load_pretrained_embeddings(vocab, embedding_dim, model_name="w2v-light-tence
     vocab_size = len(vocab)
     embedding_matrix = np.zeros((vocab_size, embedding_dim))
     
+    # 使用encode方法直接获取所有词的向量表示
+    words = list(vocab.keys())
+    embeddings = w2v_model.encode(words, show_progress_bar=True, normalize_embeddings=True)  # size (vocab, 200)
+    
     # 填充embedding矩阵
-    word_vectors = w2v_model.model.wv  # 获取词向量
     oov_count = 0
-    for word, idx in tqdm(vocab.items(), desc="构建词向量矩阵"):
-        if word in word_vectors:
-            embedding_matrix[idx] = word_vectors[word]
-        else:
-            # 对于OOV词，使用随机初始化
+    for i, (word, idx) in enumerate(tqdm(vocab.items(), desc="构建词向量矩阵")):
+        # 直接使用encode方法得到的embeddings
+        embedding_matrix[idx] = embeddings[i]
+        
+        # 如果embedding是全零向量，视为OOV词，使用随机初始化
+        if np.all(embeddings[i] == 0):
             oov_count += 1
             embedding_matrix[idx] = np.random.normal(0, 0.1, size=embedding_dim)
     
