@@ -9,7 +9,7 @@ python run.py \
   --n_folds 10 \
   --batch_size 64 \
   --epochs 10 \
-  --bert_learning_rate 5e-5 \
+  --bert_learning_rate 5e-6 \
   --bilstm_learning_rate 1e-4 \
   --warmup_ratio 0.1 \
   --lr_decay_factor 0.1 \

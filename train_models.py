@@ -820,7 +820,8 @@ def main():
             
             # 检查该fold的模型是否已存在
             bert_model_path = os.path.join(args.output_dir, f"bert_fold_{fold_idx+1}.pt")
-            if os.path.exists(bert_model_path):
+            continue_from_checkpoint = False
+            if os.path.exists(bert_model_path) and continue_from_checkpoint:
                 print(f"加载已存在的BERT模型: {bert_model_path}")
                 checkpoint = torch.load(bert_model_path)
                 bert_metrics = checkpoint['test_metrics']
@@ -898,7 +899,8 @@ def main():
             
             # 检查该fold的模型是否已存在
             bilstm_model_path = os.path.join(args.output_dir, f"bilstm_fold_{fold_idx+1}.pt")
-            if os.path.exists(bilstm_model_path):
+            continue_from_checkpoint = False
+            if os.path.exists(bilstm_model_path) and continue_from_checkpoint:
                 print(f"加载已存在的BiLSTM模型: {bilstm_model_path}")
                 checkpoint = torch.load(bilstm_model_path)
                 bilstm_metrics = checkpoint['test_metrics']
