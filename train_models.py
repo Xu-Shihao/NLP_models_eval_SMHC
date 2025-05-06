@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import wandb
 import math
 from text2vec import Word2Vec  # 添加text2vec导入
+from transformers import BertModel
 
 from models import BertClassifier, BiLSTMClassifier
 from utils import (
@@ -126,6 +127,7 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
         os.makedirs(model_path, exist_ok=True)
         # 从huggingface下载并保存到本地
         tokenizer = BertTokenizer.from_pretrained(args.bert_model_name)
+        BertModel.from_pretrained(args.bert_model_name)
         print(f"将分词器保存到本地: {model_path}")
         tokenizer.save_pretrained(model_path)
     
