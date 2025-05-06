@@ -14,6 +14,7 @@ from collections import Counter
 import matplotlib.pyplot as plt
 import wandb
 import math
+from text2vec import Word2Vec  # 添加text2vec导入
 
 from models import BertClassifier, BiLSTMClassifier
 from utils import (
@@ -403,6 +404,46 @@ def build_vocab(texts, min_freq=2):
     
     return vocab
 
+def initialize_pretrained_embeddings(vocab, w2v_model, embedding_dim=200):
+    """从预训练的词向量模型中初始化嵌入矩阵"""
+    embedding_matrix = np.zeros((len(vocab), embedding_dim))
+    
+    # 提取所有需要查询的词（不包括特殊标记）
+    words_to_query = [word for word in vocab.keys() if word not in ['<PAD>', '<UNK>']]
+    print(f"需要从预训练模型中获取的词数量：{len(words_to_query)}")
+    
+    # 批量获取词向量，并行处理
+    try:
+        print("并行批量获取词向量...")
+        # 这里使用text2vec模型的批处理能力一次性编码所有词
+        word_vectors = w2v_model.encode(words_to_query, show_progress_bar=True)
+        
+        # 将获取的词向量放入嵌入矩阵
+        for i, word in enumerate(words_to_query):
+            idx = vocab[word]
+            embedding_matrix[idx] = word_vectors[i]
+        
+        print(f"成功获取 {len(words_to_query)} 个词的预训练向量")
+    except Exception as e:
+        print(f"批量获取词向量时出错: {e}，将回退到单词处理模式")
+        # 如果批量处理失败，回退到单个处理
+        for word, idx in vocab.items():
+            if word in ['<PAD>', '<UNK>']:
+                continue
+            try:
+                word_vector = w2v_model.encode([word])[0]
+                embedding_matrix[idx] = word_vector
+            except:
+                # 如果词不在预训练模型中，随机初始化一个均值为0，标准差为1的向量
+                embedding_matrix[idx] = np.random.normal(0, 1, embedding_dim)
+    
+    # 为<UNK>和<PAD>标记随机初始化向量
+    # <PAD>使用零向量，<UNK>使用随机向量
+    if '<UNK>' in vocab:
+        embedding_matrix[vocab['<UNK>']] = np.random.normal(0, 1, embedding_dim)
+    
+    return torch.FloatTensor(embedding_matrix)
+
 class BiLSTMTokenizer:
     """用于BiLSTM模型的分词器"""
     def __init__(self, vocab, max_length=128):
@@ -478,6 +519,15 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
     vocab_size = len(vocab)
     print(f"词汇表大小: {vocab_size}")
     
+    # 加载预训练词向量模型
+    print("加载预训练词向量模型...")
+    w2v_model = Word2Vec("w2v-light-tencent-chinese")
+    
+    # 初始化预训练嵌入矩阵
+    print("初始化预训练嵌入矩阵...")
+    pretrained_embeddings = initialize_pretrained_embeddings(vocab, w2v_model, embedding_dim=args.embedding_dim)
+    print(f"预训练嵌入矩阵形状: {pretrained_embeddings.shape}")
+    
     # 自定义分词器
     tokenizer = BiLSTMTokenizer(vocab, max_length=args.max_seq_length)
     
@@ -514,13 +564,14 @@ def train_bilstm_model(fold_idx, train_texts, train_labels, val_texts, val_label
         hidden_dim=args.hidden_dim,
         num_layers=args.num_layers,
         num_classes=num_classes,
-        dropout_prob=args.dropout
+        dropout_prob=args.dropout,
+        pretrained_embeddings=pretrained_embeddings
     )
     model.to(device)
     
     # 定义损失函数和优化器
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=args.bilstm_learning_rate, weight_decay=args.weight_decay)
+    optimizer = optim.AdamW(model.parameters(), lr=args.bilstm_learning_rate, weight_decay=args.weight_decay)
     
     # 学习率调度器 - 添加warmup和不同类型的衰减策略
     total_steps = len(train_loader) * args.epochs
@@ -733,7 +784,7 @@ def main():
                         help="BERT预训练模型名称")
     
     # BiLSTM特定参数
-    parser.add_argument("--embedding_dim", type=int, default=300,
+    parser.add_argument("--embedding_dim", type=int, default=200,
                         help="词嵌入维度")
     parser.add_argument("--hidden_dim", type=int, default=256,
                         help="隐藏层维度")

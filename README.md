@@ -14,12 +14,14 @@
 ├── train_models.py            # 模型训练和评估脚本
 ├── utils.py                   # 工具函数
 ├── run.py                     # 主运行脚本
+├── demo_word2vec.py           # 预训练词向量演示脚本
 └── requirements.txt           # 依赖包列表
 ```
 
 ## 功能特点
 
 - 支持中文BERT和BiLSTM两种模型架构
+- BiLSTM现已支持使用text2vec-word2vec-tencent-chinese预训练词向量
 - 实现10折交叉验证
 - 每个fold将数据划分为80%训练集、20%验证集
 - 评估指标包括F1分数、PR-AUC、ROC-AUC、准确率、平衡准确率等
@@ -30,6 +32,7 @@
 
 ```bash
 pip install -r requirements.txt
+pip install text2vec  # 用于加载预训练词向量
 ```
 
 ## 使用方法
@@ -68,6 +71,16 @@ python run.py --data_file <数据文件路径> --output_dir <输出目录> --epo
 python train_models.py --help
 ```
 
+### 4. 测试预训练词向量
+
+运行演示脚本查看text2vec-word2vec-tencent-chinese预训练词向量的功能：
+
+```bash
+python demo_word2vec.py
+```
+
+首次运行时会自动下载预训练模型（约200MB）。
+
 ## 数据格式
 
 输入数据应为Excel文件，包含以下列：
@@ -82,4 +95,13 @@ python train_models.py --help
 - `bilstm_fold_X.pt`：每个fold训练的BiLSTM模型
 - `bert_predictions.csv`：BERT在测试集上的预测结果
 - `bilstm_predictions.csv`：BiLSTM在测试集上的预测结果
-- `all_metrics.csv`：所有评估指标的汇总 
+- `all_metrics.csv`：所有评估指标的汇总
+
+## 预训练词向量
+
+BiLSTM模型现在使用text2vec库的中文预训练词向量：
+- 模型名称: `w2v-light-tencent-chinese`
+- 维度: 200
+- 来源: 腾讯AI Lab开源的中文词向量
+
+这些预训练词向量能显著提高BiLSTM模型的性能，特别是在训练数据有限的情况下。 
