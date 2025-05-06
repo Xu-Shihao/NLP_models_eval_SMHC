@@ -111,8 +111,8 @@ def main():
                         help="随机种子")
     
     # BiLSTM特定参数
-    parser.add_argument("--embedding_dim", type=int, default=300,
-                        help="词嵌入维度")
+    parser.add_argument("--embedding_dim", type=int, default=200,
+                        help="词嵌入维度，text2vec-word2vec-tencent-chinese模型维度为200")
     parser.add_argument("--hidden_dim", type=int, default=256,
                         help="隐藏层维度")
     parser.add_argument("--num_layers", type=int, default=2,
@@ -219,9 +219,9 @@ def main():
     if args.train_bert and not args.train_bilstm:
         print("仅训练BERT模型")
     elif not args.train_bert and args.train_bilstm:
-        print("仅训练BiLSTM模型")
+        print("仅训练BiLSTM模型（使用text2vec-word2vec-tencent-chinese预训练词向量）")
     else:
-        print("训练BERT和BiLSTM模型")
+        print("训练BERT和BiLSTM模型（BiLSTM使用text2vec-word2vec-tencent-chinese预训练词向量）")
     
     # 显示数据分割模式
     if args.split_mode == "kfold":
