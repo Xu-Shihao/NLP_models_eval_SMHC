@@ -56,6 +56,7 @@ class BiLSTMClassifier(nn.Module):
         # 分类器
         self.dropout = nn.Dropout(dropout_prob)
         self.classifier = nn.Linear(hidden_dim * 2, num_classes)  # *2 因为是双向LSTM
+        self.softmax = nn.Softmax(dim=1)
         
     def forward(self, input_ids, attention_mask=None):
         # 对输入序列进行嵌入
@@ -86,4 +87,8 @@ class BiLSTMClassifier(nn.Module):
         dropped = self.dropout(lstm_last)
         logits = self.classifier(dropped)
         
-        return logits 
+        return logits
+        
+    def get_probs(self, logits):
+        """获取经过softmax的概率分布"""
+        return self.softmax(logits) 
