@@ -3,14 +3,14 @@
 # 运行AD_clean_text.csv文件的处理脚本
 python run.py \
   --data_file ./dataset/AD_clean_text.csv \
-  --output_dir ./results/AD_results \
+  --output_dir ./results/AD_results_BiLSTM \
   --random_state 42 \
   --val_ratio 0.2 \
   --n_folds 10 \
   --batch_size 64 \
-  --epochs 10 \
+  --epochs 100 \
   --bert_learning_rate 5e-5 \
-  --bilstm_learning_rate 1e-2 \
+  --bilstm_learning_rate 0.1 \
   --warmup_ratio 0.1 \
   --lr_decay_factor 0.1 \
   --lr_decay_epochs "2,4,6,8" \
@@ -29,7 +29,7 @@ python run.py \
   --lr_scheduler "linear" \
   --gpu_device "0" \
   --train_bilstm \
-  --wandb_project "AD_chinese-roberta-wwm-ext-large" \
+  --wandb_project "AD_BiLSTM" \
   --use_wandb \
   --split_mode fixed \
   --test_ratio 0.2

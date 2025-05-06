@@ -977,7 +977,7 @@ def main():
         wandb.init(
             project=args.wandb_project,
             entity=args.wandb_entity,
-            name="Final_Comparison",
+            name="Final_Comparison" + os.path.basename(args.data_file),
             config=vars(args),
             reinit=True
         )
