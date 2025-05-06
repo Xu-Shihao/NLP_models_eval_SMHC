@@ -15,7 +15,7 @@ python run.py \
   --lr_decay_factor 0.1 \
   --lr_decay_epochs "2,4,6,8" \
   --weight_decay 0.01 \
-  --patience 5 \
+  --patience 10 \
   --dropout 0.1 \
   --seed 42 \
   --max_seq_length 512 \
