@@ -27,7 +27,7 @@ python run.py \
   --max_chunks 20 \
   --fusion_method "mean" \
   --lr_scheduler "linear" \
-  --gpu_device "0" \
+  --gpu_device "1" \
   --train_bert \
   --wandb_project "AD_bert-base-chinese" \
   --use_wandb \

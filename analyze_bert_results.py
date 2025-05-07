@@ -9,7 +9,7 @@ import glob
 results_df = pd.DataFrame()
 
 # 查找所有prediction结尾的csv文件
-prediction_files = glob.glob('results/**/BERT_predictions.csv', recursive=True)
+prediction_files = glob.glob('results/**_bert-base-chinese/BERT_predictions.csv', recursive=True)
 
 # 处理每个文件
 for file_path in prediction_files:

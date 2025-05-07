@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from transformers import BertTokenizer, get_linear_schedule_with_warmup
+from transformers import BertTokenizer, get_linear_schedule_with_warmup, AutoTokenizer, AutoModelForMaskedLM
 from tqdm import tqdm
 import jieba
 from collections import Counter
@@ -118,19 +118,30 @@ def train_bert_model(fold_idx, train_texts, train_labels, val_texts, val_labels,
     
     # 加载分词器
     model_path = os.path.join("./model", args.bert_model_name)
+    # 检查是否使用AutoTokenizer和AutoModelForMaskedLM
+    use_auto_model = args.bert_model_name == "bert-base-chinese"
+    
     if os.path.exists(model_path):
         print(f"从本地加载BERT分词器: {model_path}")
-        tokenizer = BertTokenizer.from_pretrained(model_path)
+        if use_auto_model:
+            tokenizer = AutoTokenizer.from_pretrained(model_path)
+        else:
+            tokenizer = BertTokenizer.from_pretrained(model_path)
     else:
         print(f"本地分词器不存在，从huggingface下载: {args.bert_model_name}")
         # 确保model目录存在
         os.makedirs(model_path, exist_ok=True)
         # 从huggingface下载并保存到本地
-        tokenizer = BertTokenizer.from_pretrained(args.bert_model_name)
-        BertModel.from_pretrained(args.bert_model_name)
+        if use_auto_model:
+            tokenizer = AutoTokenizer.from_pretrained(args.bert_model_name)
+            model = AutoModelForMaskedLM.from_pretrained(args.bert_model_name)
+        else:
+            tokenizer = BertTokenizer.from_pretrained(args.bert_model_name)
+            model = BertModel.from_pretrained(args.bert_model_name)
         print(f"将分词器保存到本地: {model_path}")
         tokenizer.save_pretrained(model_path)
-    
+        model.save_pretrained(model_path)
+        
     # 使用LongTextDataset处理长文本
     chunk_length = 512  # 固定chunk长度为512
     train_dataset = LongTextDataset(
